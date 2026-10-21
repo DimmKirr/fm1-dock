@@ -17,6 +17,8 @@
  *              module's bank (8 KiB, by its name) for its user presets.
  *   deploys    a module sent over SysEx (tools/harbor.py deploy) goes into flash of its own, never
  *              the host's: received whole and checked first, the table written last (see below).
+ *   keys       the bottom two rows' force is sensed (Velo's sense.c, by way of CS-1, in the key
+ *              scan): they play with the velocity they land at, report their pressure while held.
  *   overload   a module that renders slower than real time for 64 blocks in a row (0.4 s or more)
  *              is stopped (the sine plays): the main loop, so USB and the updater, keep running. */
 #define APP_NAME "HARBOR"
@@ -26,9 +28,15 @@
 #define APP_FL_LO 0x93000u                      /* what the host may erase / program besides its settings: the */
 #define APP_FL_HI 0xFC000u                      /* deployed modules, their table, the banks; never the host (below) */
 #define APP_SYSEX hb_sysex
+#include <stdint.h>
+static void hb_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven);
+static int hb_analog_drive(uint32_t col, uint32_t rowbit);
+#define FM1_INPUT_ANALOG(col, rowbit, v, driven) hb_analog(col, rowbit, v, driven)
+#define FM1_INPUT_DRIVE(col, rowbit) hb_analog_drive(col, rowbit)
 #include "platform.c"
 #include "fm1_uart.h"
 #include "hb_module.h"
+#include "sense.c"
 
 #define C_ACC RGB(180, 140, 255)                /* lilac, as the logo */
 #define C_OFF RGB(90, 90, 90)
@@ -278,6 +286,48 @@ static void mod_save(const void *p, uint32_t n)
     store_touch();
 }
 
+/* ---- the keys' force: Velo's sensing (charlesvestal/fm1-velocity; sense.c as CS-1 carries it) on the
+ * key scan's analog rows (hal/fm1_input.h).
+ * The host's settings are CS-1's defaults at DRIVE 2; a module may set its own while it runs. */
+#define SENSE_DRIVE 2u
+static uint32_t sense_mask;                     /* the keys on the analog rows (PA7 / PA8): 0..19 */
+static void hb_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven)   /* (the scan's ISR) */
+{
+    int id = FM1_KEYMAP[rowbit][col];
+    if (id >= 14)
+        sense_sample((uint32_t)id - 14u, v, fm1_ticks(), (int)driven);
+}
+static int hb_analog_drive(uint32_t col, uint32_t rowbit)
+{
+    int id = FM1_KEYMAP[rowbit][col];
+    return id >= 14 && sense_want_drive((uint32_t)id - 14u);
+}
+static void sense_cfg_set(uint32_t on, uint32_t drive, uint32_t curve, uint32_t ceil)   /* main loop */
+{
+    drive = drive > 4u ? 4u : drive;
+    sn_cfg.d_curve = (uint16_t)curve;
+    sn_cfg.d_ceil = (uint16_t)ceil;
+    if (drive != sn_cfg.drive) {
+        sn_cfg.drive = (uint8_t)drive;
+        sense_cal_reset();                      /* (the driven floor depends on it) */
+    }
+    fm1_an.drive = (uint8_t)drive;
+    fm1_an.con = on ? (uint16_t)FM1_ADC_CON(7, 2) : 0u;   /* (CS-1's: divider 7, delay 2, as measured) */
+}
+static void sense_defaults(void) { sense_cfg_set(1, SENSE_DRIVE, 70, 1000); }
+static uint32_t h_sense_keys(void) { return fm1_an.con ? sense_mask : 0; }
+static int h_key_sense(uint32_t k, hb_key_sense_t *o)
+{
+    if (k >= 27u || !(h_sense_keys() >> k & 1u))
+        return -1;
+    o->state = sn_key[k].st;
+    o->vel = sn_key[k].vel;
+    o->v = sn_key[k].v;
+    o->d = sn_key[k].d;
+    o->dland = sn_key[k].dland;
+    return 0;
+}
+
 /* ---- the service table */
 static uint32_t h_ms(void) { return fm1_ms; }
 static uint32_t h_ticks(void) { return fm1_ticks(); }
@@ -392,6 +442,7 @@ static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
+    h_sense_keys, h_key_sense, sense_cfg_set,
 };
 
 /* ---- the sound: the module renders, the host measures */
@@ -443,6 +494,7 @@ static int start_module(uint32_t i)
     }
     cur = i;
     hb_over = 0;
+    sense_defaults();                           /* (what the module before set is gone) */
     hb_nv.active = i + 1u;                      /* a crash in init counts as the module's */
     hb_nv.stats.module = i;
     hb_nv.stats.worst = hb_nv.stats.overruns = 0;
@@ -1038,8 +1090,10 @@ static void app_main(void)
 {
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
     uint32_t home_t0 = 0, home_alone = 0, home_eaten = 0;   /* HOME held alone 1.5 s: the picker (HB_F_PANEL) */
+    uint32_t sheld = 0, t_press = 0;            /* the sensed keys held (bit k); the pressure's last round */
     int32_t oct_drawn = 99;
-    uint8_t held[27] = {0};
+    uint8_t held[27] = {0}, press_sent[27] = {0};
+    sense_ev_t se;
 
     nv_init();
     if (hb_nv.active && (fm1_boot.p3_rst & 4u)) {   /* the watchdog, with a module running */
@@ -1056,6 +1110,12 @@ static void app_main(void)
 
     store_load();
     if (st.oct < -2 || st.oct > 2) st.oct = 0;
+    for (k = 0; k < FM1_NCOL; k++) {            /* the keys on the analog rows */
+        if (FM1_KEYMAP[3][k] >= 14) sense_mask |= 1u << (FM1_KEYMAP[3][k] - 14);
+        if (FM1_KEYMAP[4][k] >= 14) sense_mask |= 1u << (FM1_KEYMAP[4][k] - 14);
+    }
+    sense_init(sense_mask);
+    sense_defaults();
     fl_plain_window_init();                     /* flash 0x93000 up reads as stored: the deployed modules */
     scan_slots();
 
@@ -1073,7 +1133,7 @@ static void app_main(void)
         start_module(0);
 
     for (;;) {
-        uint32_t keys, down, up, rel, b, e, base = (uint32_t)(KEY0 + 12 * st.oct), panel, screen;
+        uint32_t keys, down, up, rel, b, e, base = (uint32_t)(KEY0 + 12 * st.oct), panel, screen, sensed;
         uint8_t s, d1, d2;
         const hb_module_t *m;
         platform_poll();
@@ -1085,7 +1145,13 @@ static void app_main(void)
         down = keys & ~prev;
         up = prev & ~keys;
         prev = keys;
+        sensed = h_sense_keys();
         for (k = 0; k < 27u; k++) {
+            if (sensed >> k & 1u) {             /* a sensed key plays from its landing (below) */
+                if (!panel)
+                    fm1_led_key(KEY_LED(k), keys >> k & 1u);
+                continue;
+            }
             if (panel) {                        /* the module plays its keys */
                 if (down >> k & 1u) m->ui(HB_EV_KEY_DOWN | k, 0);
                 if (up >> k & 1u) m->ui(HB_EV_KEY_UP | k, 0);
@@ -1094,6 +1160,51 @@ static void app_main(void)
             if (down >> k & 1u) { held[k] = (uint8_t)(base + k); play_note(0, held[k], 100); midi_send(0x90, held[k], 100); }
             if (up >> k & 1u) { play_note(0, held[k], 0); midi_send(0x80, held[k], 0); }   /* a key stops the note it started */
             fm1_led_key(KEY_LED(k), keys >> k & 1u);
+        }
+        while (sense_take(&se)) {               /* the sensed keys: landed (with a velocity), lifted */
+            k = se.key;
+            if (k >= 27u || !(sensed >> k & 1u))
+                continue;
+            if (se.type == EV_ON && !(sheld >> k & 1u)) {
+                uint32_t v = se.vel ? se.vel : 1u;
+                sheld |= 1u << k;
+                press_sent[k] = 0;
+                if (panel) {
+                    m->ui(HB_EV_KEY_DOWN | k, (int32_t)v);
+                } else {
+                    held[k] = (uint8_t)(base + k);
+                    play_note(0, held[k], v);
+                    midi_send(0x90, held[k], v);
+                }
+            } else if (se.type == EV_OFF && sheld >> k & 1u) {
+                sheld &= ~(1u << k);
+                if (panel) {
+                    m->ui(HB_EV_KEY_UP | k, 0);
+                } else {
+                    play_note(0, held[k], 0);
+                    midi_send(0x80, held[k], 0);
+                }
+            }
+        }
+        for (k = 0; k < 27u; k++)               /* sensing switched off with keys held: let them go */
+            if (sheld >> k & ~sensed >> k & 1u) {
+                sheld &= ~(1u << k);
+                if (panel) m->ui(HB_EV_KEY_UP | k, 0); else { play_note(0, held[k], 0); midi_send(0x80, held[k], 0); }
+            }
+        if (sheld && fm1_ms - t_press >= 10u) {  /* their pressure, ~100 times a second */
+            t_press = fm1_ms;
+            for (k = 0; k < 27u; k++) {
+                uint32_t pr;
+                if (!(sheld >> k & 1u) || (pr = sense_pressure(k)) == press_sent[k])
+                    continue;
+                press_sent[k] = (uint8_t)pr;
+                if (panel) {
+                    m->ui(HB_EV_KEY_PRESSURE | k, (int32_t)pr);
+                } else {
+                    if (m && m->midi) m->midi(0xA0, held[k], pr);
+                    midi_send(0xA0, held[k], pr);
+                }
+            }
         }
         held_any = keys != 0;
         if (down)

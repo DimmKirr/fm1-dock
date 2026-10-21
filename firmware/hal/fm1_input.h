@@ -47,6 +47,28 @@
 #include "fm1_time.h"
 #include "fm1_gpio.h"
 #include "fm1_cc.h"
+#include "fm1_adc.h"
+
+/* Analog rows (Velo, Charles Vestal's charlesvestal/fm1-velocity, from CS-1's fm1_input.h; on with
+ * fm1_an.con): the tick also starts an
+ * ADC conversion on row PA7 (even frames) or PA8 (odd frames) of the column it has just latched,
+ * and takes the result at the next tick, before the rows are read, so every key on those two rows
+ * is sampled once per two frames (~2.2 ms): the voltage across the key's carbon pill against the
+ * row's pull-up, 1023 open, falling as the pill is pressed harder. FM1_INPUT_ANALOG(col, rowbit, v,
+ * driven) gets each sample (rowbit 3 = PA7, 4 = PA8; the key is FM1_KEYMAP[rowbit][col]). The
+ * MASTER pot takes the slot of (odd frame, column 0) and lands in fm1_an.master (the main loop
+ * must not use fm1_adc_read while the scan owns the converter).
+ * Drive: with fm1_an.drive set (1..4), a sample for which FM1_INPUT_DRIVE(col, rowbit) is nonzero
+ * is taken with the row driven high instead of pulled up, at strength drive - 1 (HD0 bit 0, HD bit
+ * 1: the pin's driver is then the divider's upper half and spreads a seated key's range); the
+ * row is an input with its pull-up again when the result is taken. CS-1's probe of the top row
+ * and its converter experiments are not here. */
+#ifndef FM1_INPUT_ANALOG
+#define FM1_INPUT_ANALOG(col, rowbit, v, driven) ((void)0)
+#endif
+#ifndef FM1_INPUT_DRIVE
+#define FM1_INPUT_DRIVE(col, rowbit) 0
+#endif
 
 #ifndef FM1_INPUT_IDLE
 #define FM1_INPUT_IDLE() ((void)0)
@@ -96,6 +118,16 @@ static volatile struct {
     uint32_t frames;
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
+static volatile struct {
+    uint16_t con;                /* the conversion's clock / start delay (FM1_ADC_CON); 0 = analog off */
+    uint8_t pend, col, rowbit;   /* a conversion runs for (col, rowbit); rowbit 0 = the pot */
+    uint16_t master;             /* the MASTER pot, 0..1023 */
+    uint8_t master_ok;           /* (one taken since the scan began) */
+    uint16_t timeouts;           /* conversions not done after a tick (the settings too slow) */
+    uint8_t drive;               /* 0 off; 1..4: driven samples (FM1_INPUT_DRIVE) at strength drive - 1 */
+    uint8_t driven;              /* the pending conversion's row is driven high (restore at the take) */
+    uint8_t phase;               /* frame phase: 0 PA7, 1 PA8 */
+} fm1_an;
 #ifndef FM1_GLOW_NS
 #define FM1_GLOW_NS 4000u        /* the glow pulse a frame (ns); a lit LED ~95 us: ~1/24 the brightness */
 #endif
@@ -279,6 +311,69 @@ static void fm1__frame(void)
     fm1_in.frames++;
 }
 
+/* the drive (analog rows): rowbit 3 = PA7, 4 = PA8; strength 0..3 in HD0 / HD */
+static void fm1__row_drive(uint32_t rowbit, uint32_t strength)
+{
+    uint32_t m = 1u << (rowbit == 3u ? 7 : 8);
+    if (strength & 1u)
+        FM1_PR(FM1_PA, FM1_HD0) |= m;
+    else
+        FM1_PR(FM1_PA, FM1_HD0) &= ~m;
+    if (strength & 2u)
+        FM1_PR(FM1_PA, FM1_HD) |= m;
+    else
+        FM1_PR(FM1_PA, FM1_HD) &= ~m;
+    FM1_PR(FM1_PA, FM1_OUT) |= m;
+    FM1_PR(FM1_PA, FM1_DIR) &= ~m;
+}
+static void fm1__row_release(uint32_t rowbit)
+{
+    uint32_t m = 1u << (rowbit == 3u ? 7 : 8);
+    FM1_PR(FM1_PA, FM1_DIR) |= m;                  /* an input with its pull-up again */
+    FM1_PR(FM1_PA, FM1_OUT) &= ~m;
+    FM1_PR(FM1_PA, FM1_HD0) &= ~m;
+    FM1_PR(FM1_PA, FM1_HD) &= ~m;
+}
+/* the conversion started last tick (on column p): its result, the row as it was */
+static void fm1__an_take(void)
+{
+    uint32_t driven = fm1_an.driven;
+    fm1_an.pend = 0;
+    if (driven) {
+        fm1_an.driven = 0;
+        fm1__row_release(fm1_an.rowbit);
+    }
+    if (fm1_adc_done()) {
+        uint32_t v = fm1_adc_take();
+        if (fm1_an.rowbit)
+            FM1_INPUT_ANALOG(fm1_an.col, fm1_an.rowbit, v, driven);
+        else {
+            fm1_an.master = (uint16_t)v;
+            fm1_an.master_ok = 1;
+        }
+    } else {
+        fm1_adc_abort();
+        fm1_an.timeouts++;
+    }
+}
+/* column n is latched now: sample its PA7 / PA8 key (or the pot) until the next tick */
+static void fm1__an_start(uint32_t n)
+{
+    uint32_t odd = fm1_an.phase, ch = odd ? FM1_ADC_ROW_PA8 : FM1_ADC_ROW_PA7, rowbit = odd ? 4u : 3u;
+    if (odd && n == 0u) {
+        ch = FM1_ADC_MASTER;
+        rowbit = 0;
+    }
+    fm1_an.col = (uint8_t)n;
+    fm1_an.rowbit = (uint8_t)rowbit;
+    if (rowbit && fm1_an.drive && FM1_INPUT_DRIVE(n, rowbit)) {
+        fm1__row_drive(rowbit, fm1_an.drive - 1u);
+        fm1_an.driven = 1;
+    }
+    fm1_adc_start(ch, fm1_an.con);
+    fm1_an.pend = 1;
+}
+
 /* one column per call, from a timer ISR (see top). The dim pulses of column p ride on the shift of
  * column n: the lines go lit | glow | backlight of p, each layer ends when its time is up (TIMER4,
  * checked after every bit), and the latch comes with the lines dark. */
@@ -290,6 +385,8 @@ static void fm1_input_tick(void)
     uint32_t lit = fm1_led[p], a = fm1_led_dim[p] & ~lit, b = fm1_led_bg[p] & ~lit & ~a;
     uint32_t ta = a ? FM1__NS_T(FM1_GLOW_NS) : 0u, tb = b ? FM1__NS_T(fm1_led_bg_ns) : 0u;
     uint32_t tmax = ta > tb ? ta : tb;
+    if (fm1_an.pend)
+        fm1__an_take();                            /* (a driven row an input again before it is read) */
     fm1__led_lines(0);
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick (the lines dark) */
     if (tmax) {
@@ -312,8 +409,12 @@ static void fm1_input_tick(void)
     fm1__led_lines(fm1_led[n]);
     fm1__tick_col = (uint8_t)n;
     fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
-    if (n == 0u)
+    if (n == 0u) {
         fm1__frame();
+        fm1_an.phase ^= 1u;
+    }
+    if (fm1_an.con)
+        fm1__an_start(n);
 }
 
 /* main-loop critical section against fm1_input_tick (main loop only: it

@@ -35,8 +35,11 @@ enum {
     HB_EV_BTN_DOWN = 0x01000000u,               /* | button id (BTN_FX ...; not OCT-/OCT+/HOME: the host's) */
     HB_EV_BTN_UP   = 0x02000000u,
     HB_EV_ENC      = 0x03000000u,               /* | encoder id (ENC_SELECT ... ENC_PRESETS), arg = clicks */
-    HB_EV_KEY_DOWN = 0x04000000u,               /* | note key k (0 = F3 .. 26 = G5): HB_F_PANEL only */
+    HB_EV_KEY_DOWN = 0x04000000u,               /* | note key k (0 = F3 .. 26 = G5): HB_F_PANEL only; arg = the
+                                                 * velocity (1..127) of a key whose force is sensed, 0 if not */
     HB_EV_KEY_UP   = 0x05000000u,
+    HB_EV_KEY_PRESSURE = 0x06000000u,           /* | key k held, arg = its pressure 0..127 (aftertouch; sensed keys,
+                                                 * HB_F_PANEL only; a module with midi() but no panel gets An) */
 };
 #define HB_EV_KIND(ev) ((ev) & 0xFF000000u)
 #define HB_EV_ID(ev)   ((ev) & 0xFFu)
@@ -58,6 +61,16 @@ static inline void *hb_far(void *p) { void *volatile q = p; return q; }
 #define HB_FAR(fn) ((__typeof__(&fn))hb_far((void *)&fn))
 
 #define HB_RGB(r, g, b) ((uint16_t)((((r) & 0xF8u) << 8) | (((g) & 0xFCu) << 3) | ((b) >> 3)))
+
+/* one key's force readings (hb_host_t.key_sense) */
+typedef struct hb_key_sense {
+    uint8_t state;                              /* 0 open, 1 touched, 2 down, 3 lifting (sense.c's) */
+    uint8_t vel;                                /* the last landing's velocity */
+    uint16_t v;                                 /* the last reading pulled up (1023 open .. ~186 the diode) */
+    uint16_t d;                                 /* the last driven reading (0: none), HB_SENSE_DBASE: no pill */
+    uint16_t dland;                             /* the driven reading the velocity came from */
+} hb_key_sense_t;
+#define HB_SENSE_DBASE 185u
 
 typedef struct hb_host {
     uint32_t abi;                               /* HB_ABI */
@@ -95,6 +108,13 @@ typedef struct hb_host {
      * erases the bank (the sound stalls ~100 ms) */
     int (*bank_load)(void *p, uint32_t n);      /* 0: loaded (n as saved) */
     int (*bank_save)(const void *p, uint32_t n);
+    /* the keys' force (Velo's sensing, by way of CS-1, in the host's key scan; a module checks size first): the
+     * keys whose force is sensed now (bit k, 0: none / off: the bottom two rows, 20 keys); one key's
+     * readings; and, while this module runs, the sensing's own settings (on, DRIVE 0..4, the
+     * velocity curve x 100, the reading of the lightest press that seats) */
+    uint32_t (*sense_keys)(void);
+    int (*key_sense)(uint32_t k, hb_key_sense_t *out);   /* 0: filled */
+    void (*sense_set)(uint32_t on, uint32_t drive, uint32_t curve, uint32_t ceil);
 } hb_host_t;
 #define HB_BANK_MAX 8176u
 

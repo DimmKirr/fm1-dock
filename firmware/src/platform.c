@@ -299,7 +299,8 @@ static void platform_poll(void)
     }
     if (fm1_ms >= 30000u && bootguard.pending)
         bootguard_clear(&bootguard);            /* 30 s up: this firmware boots */
-    if ((a = fm1_adc_read(FM1_ADC_MASTER)) >= 0) {
+    a = fm1_an.con ? (fm1_an.master_ok ? (int32_t)fm1_an.master : -1) : fm1_adc_read(FM1_ADC_MASTER);
+    if (a >= 0) {                               /* (with the keys sensed, the scan converts the pot too) */
         uint32_t k10;
         knob_avg += (a * 16 - knob_avg) / 8;
         k10 = (uint32_t)(knob_avg / 16);

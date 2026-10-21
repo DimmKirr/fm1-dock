@@ -141,6 +141,27 @@ def main():
         check("cs1", "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log and worst < 90,
               f"CS-1 plays eight voices on core 0; worst {worst} % of a block")
 
+    # the keys' force (fm1-emu's pills on the analog rows; sense.c in the host): key 23 (note key 9)
+    # is on row PA7, key 34 (note key 20) on the top row, which has no converter
+    s, log = run("velocity", "1000:23@20,1400:23^,1800:23@127,2200:23^,2400:34@20,2700:34^", 2900)
+    soft, hard, top = peak(s, 0.9, 1.3), peak(s, 1.7, 2.1), peak(s, 2.3, 2.6)
+    check("velocity", 0 < soft < hard / 2 and top > soft,
+          f"a sensed key plays at the force it lands with (sine peak {soft} soft, {hard} hard); the top row at 100 ({top})")
+
+    if "CS-1" in names:
+        def rms(s, t0, t1):
+            seg = s[int(t0 * 44100) * 2:int(t1 * 44100) * 2]
+            return (sum(x * x for x in seg) / max(1, len(seg))) ** 0.5
+        k = pick("CS-1")
+        a, _ = run("cs1_soft", k + ",1800:23@20,2600:23^", 3000)
+        b, _ = run("cs1_hard", k + ",1800:23@127,2600:23^", 3000)
+        c, log = run("cs1_pressure", k + ",1800:23@40,2000:23~127,2600:23^", 3000)
+        d, _ = run("cs1_nopressure", k + ",1800:23@40,2600:23^", 3000)
+        check("cs1_velocity", rms(b, 1.9, 2.3) > 1.5 * rms(a, 1.9, 2.3),
+              f"CS-1 takes the host's velocity (RMS {rms(a, 1.9, 2.3):.0f} soft, {rms(b, 1.9, 2.3):.0f} hard)")
+        check("cs1_pressure", rms(c, 2.1, 2.4) > 1.1 * rms(d, 2.1, 2.4),
+              f"CS-1's own pressure from the host's readings (RMS {rms(d, 2.1, 2.4):.0f} held, {rms(c, 2.1, 2.4):.0f} pressed harder)")
+
     s, log = run("din_midi", "1000:m903c64,1500:m803c00,1700:m9045,1800:m40", 2500)
     check("din_midi", peak(s, 0.9, 1.2) > 1000 and peak(s, 1.4, 1.5) < peak(s, 0.9, 1.2) and peak(s, 1.7, 2.0) > 1000,
           "the DIN jack plays notes (and running status split across bytes)")

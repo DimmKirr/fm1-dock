@@ -3,8 +3,9 @@
  * harbor module: its own app, cs1/cs1.c, unchanged but for one line (its platform include, now
  * cs1_platform.h), with its voice, effects, sounds, pages, user presets and MIDI. The host runs
  * CS-1's app_init() at init and its app_loop() from draw(); the voice renders in the host's
- * audio interrupt. What a module cannot have: cs1_platform.h (the keys' sensing, the second
- * core). HOME held 1.5 s alone opens harbor's module list (a short HOME is CS-1's). */
+ * audio interrupt; the keys' sensing is the host's (cs1_platform.h). What a module cannot have:
+ * cs1_platform.h (the second core, ...). HOME held 1.5 s alone opens harbor's module list (a short
+ * HOME is CS-1's). */
 #include "cs1_platform.h"
 #include "cs1/cs1.c"
 
@@ -14,11 +15,26 @@ static void render(int32_t *out, uint32_t n)
         app_audio(out, n);
 }
 
-static void ui(uint32_t ev, int32_t arg) { hbf_event(ev, arg); }
+static uint32_t sensed_down;                    /* the keys that landed sensed (bit k): their lift is sensed too */
+static void ui(uint32_t ev, int32_t arg)
+{
+    uint32_t k = HB_EV_ID(ev);
+    if (HB_EV_KIND(ev) == HB_EV_KEY_PRESSURE)
+        return;                                 /* (CS-1 works out its own, key_lean) */
+    if (HB_EV_KIND(ev) == HB_EV_KEY_DOWN && arg > 0 && k < 27u) {
+        sensed_down |= 1u << k;
+        cs1_sense_ev(EV_ON, k, (uint32_t)arg);
+    } else if (HB_EV_KIND(ev) == HB_EV_KEY_UP && k < 27u && sensed_down >> k & 1u) {
+        sensed_down &= ~(1u << k);
+        cs1_sense_ev(EV_OFF, k, 0);
+    }
+    hbf_event(ev, arg);
+}
 static void midi(uint32_t st, uint32_t d1, uint32_t d2) { hbf_midi(st, d1, d2); }
 static void draw(uint32_t full)
 {
     if (full) page_drawn = ~0u;                 /* (back from the module list: the page again) */
+    cs1_sense_sync();
     app_loop();
 }
 

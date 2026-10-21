@@ -1,10 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* What CS-1's platform.c (on Dinghy's) gives its cs1.c, on the harbor host: the panel, the time
  * and MIDI (modules/lib/hb_fm1.h), the screen calls (the host's canvas and font, the same as
- * gfx.c's), the settings record and the user presets' bank, the block. What a module cannot
- * have is stubbed and says so:
- *   - the keys' own velocity and pressure (sense.c reads the keys through the ADC): off, the keys
- *     play at CS-1's fixed velocity, as with SENSE off;
+ * gfx.c's), the settings record and the user presets' bank, the block, and the keys' sensing:
+ * CS-1's own sense.c (Velo's, charlesvestal/fm1-velocity) runs in the host's key scan
+ * (hb_host_t.sense_keys ...); its landings come as KEY_DOWN events with their velocity
+ * (cs1_module.c makes sense_take()'s events of them), and the readings CS-1's pressure
+ * (key_lean) works from are fetched before each loop (cs1_sense_sync).
+ * The KEYS pages' SENSE, DRIVE, CURVE and LIGHT go to the host's sensing while CS-1 runs. What a
+ * module cannot have is stubbed and says so:
+ *   - the sensing's capture of the last press, its per-key calibration storage, the top row's probe;
  *   - the second core (audio_worker): none, every voice renders on core 0;
  *   - the updater drawing over the screen (platform_screen_take), the TRS ring's drop count. */
 #ifndef CS1_PLATFORM_H
@@ -56,18 +60,56 @@ static struct { uint32_t last_job_ticks; } audio_worker;
 static int audio_worker_submit(audio_worker_fn fn, void *ctx) { (void)fn; (void)ctx; return 0; }
 static void audio_worker_join(void) {}
 
-/* ---- the keys' sensing (sense.c): none */
+/* ---- the keys' sensing: the host's (see the top) */
 enum { EV_ON = 1, EV_OFF = 2 };
-enum { SN_DOWN = 3 };
-#define SN_DBASE 0u
+enum { SN_DOWN = 2 };                           /* (sense.c's states: hb_key_sense_t.state) */
+#define SN_DBASE HB_SENSE_DBASE
 typedef struct { uint8_t type, key, vel, dt_ms; } sense_ev_t;
 static struct { uint8_t st; uint16_t d, dland; } sn_key[27];
-static struct { uint8_t drive; uint16_t d_curve, d_ceil; } sn_cfg;
+static struct { uint8_t drive; uint16_t d_curve, d_ceil; } sn_cfg;   /* (cs1.c sets them, then keys_sense_set) */
+static sense_ev_t cs1_ev[16];
+static uint8_t cs1_ev_r, cs1_ev_w;
+static int cs1_has_sense(void) { return H->size >= sizeof(hb_host_t); }   /* (an older host: no sensing) */
+static uint32_t cs1_sensed(void) { return cs1_has_sense() ? H->sense_keys() : 0; }
 static void sense_init(uint32_t mask) { (void)mask; }
-static uint32_t keys_analog_mask(void) { return 0; }
-static void keys_sense_set(uint32_t on, uint32_t drive) { (void)on; (void)drive; }
-static int keys_sense_live(void) { return 0; }
-static int sense_is_analog(uint32_t k) { (void)k; return 0; }
-static int sense_take(sense_ev_t *e) { (void)e; return 0; }
+static uint32_t keys_analog_mask(void) { return cs1_sensed(); }
+static void keys_sense_set(uint32_t on, uint32_t drive)
+{
+    if (cs1_has_sense())
+        H->sense_set(on, drive, sn_cfg.d_curve, sn_cfg.d_ceil);
+}
+static int keys_sense_live(void) { return cs1_sensed() != 0; }
+static int sense_is_analog(uint32_t k) { return k < 27u && (cs1_sensed() >> k & 1u); }
+static int sense_take(sense_ev_t *e)
+{
+    if (cs1_ev_r == cs1_ev_w)
+        return 0;
+    *e = cs1_ev[cs1_ev_r++ % 16u];
+    return 1;
+}
+static void cs1_sense_ev(uint32_t type, uint32_t key, uint32_t vel)   /* from ui(): a sensed key landed / lifted */
+{
+    if ((uint8_t)(cs1_ev_w - cs1_ev_r) < 16u) {
+        sense_ev_t *e = &cs1_ev[cs1_ev_w++ % 16u];
+        e->type = (uint8_t)type;
+        e->key = (uint8_t)key;
+        e->vel = (uint8_t)vel;
+        e->dt_ms = 0;
+    }
+}
+static void cs1_sense_sync(void)                /* the readings cs1.c's pressure works from, before its loop */
+{
+    uint32_t k, m = cs1_sensed();
+    hb_key_sense_t r;
+    for (k = 0; k < 27u; k++) {
+        if (m >> k & 1u && !H->key_sense(k, &r)) {
+            sn_key[k].st = r.state;
+            sn_key[k].d = r.d;
+            sn_key[k].dland = r.dland;
+        } else {
+            sn_key[k].st = 0;
+        }
+    }
+}
 
 #endif

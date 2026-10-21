@@ -138,11 +138,22 @@ nothing on hardware):
     running; HELLO / SAFE / SELECT / DELETE reach a running harbor from the computer;
   - banks are 8 KiB by module name (`HB_BANK_MAX` 8176; CS-1's 4 KiB bank did not fit the old 4 KiB
     sector with its header, so its user presets were never saved).
+- **The keys' force** (velocity and polyphonic pressure): Velo's sensing (Charles Vestal,
+  `charlesvestal/fm1-velocity`, GPL-3.0; `firmware/src/sense.c` as CS-1 carries it) in the host's
+  key scan, with the analog rows (PA7 / PA8, 20 keys; the top row has no converter) and the row
+  drive taken onto Dinghy's scanner. Sensed keys play with their landing's velocity (KEY_DOWN's arg,
+  note() for the others), held ones report HB_EV_KEY_PRESSURE; CS-1 gets the readings
+  (`key_sense`) for its own pressure and sets the sensing from its KEYS pages (`sense_set`).
+  The MASTER pot is converted in the scan too. fm1-emu models the pills (branch `fm1-key-pressure`,
+  on `fm1-live-flash-file`): `ms:ID@VEL`, `ms:ID~VEL`, the mouse's height on a key. Fitted to CS-1's
+  measurements: CS-1's own firmware in the emulator senses 8 / 19 / 50 / 80 / 101 for 1 / 20 / 64 /
+  100 / 127. Not on hardware.
+- Identity: CS-1's own package is also `FM-1_950`: harbor needs another before any release.
 - [ ] P5 hardware: not started.
 - **Interface v2** (ABI 2): a module may take the whole screen (HB_F_SCREEN) and the whole panel
   (HB_F_PANEL: every key and button as events, OCT and HOME too; HOME held 1.5 s alone opens the
-  module list), raw MIDI (midi()), blit, text_w, and a 4 KiB flash bank of its own (0xEA000 +
-  4 KiB per slot, Felucca's USR area). `modules/lib/hb_fm1.h` gives a ported firmware its
+  module list), raw MIDI (midi()), blit, text_w, and an 8 KiB flash bank of its own (by module
+  name, 0xEA000-0xFC000, Felucca's USR area). `modules/lib/hb_fm1.h` gives a ported firmware its
   platform calls (fm1_in, fm1_input_edges, fm1_enc_take, midi_get, ...) on top of them.
 - **Modules, with their own UIs**:
   - SID: FM-1 SID's synth mode as it is (`modules/sid/fm1sid/take.py` takes its main.c by line
@@ -150,12 +161,11 @@ nothing on hardware):
     only (one chip, as FM-1 SID), the own model gone; 15 % of a block. Not here: the PSID player.
   - CS-1: CS-1's own app (cs1.c unchanged but for its platform include, `cs1_platform.h`): its
     pages, sounds, user presets (in the bank), MIDI learn and clock; 8 voices on core 0, worst
-    61 % of a block. Not here: the keys' pressure sensing (ADC), the second core.
+    61 % of a block; the keys' velocity and pressure from the host's sensing. Not here: the second core.
   - SINE: Dinghy's, and the built-in fallback.
 - **fm1-emu**: test with its current master. The binaries in `~/work/fm1-emu/target/release` were
   from 2026-10-12 and cannot run a pair move (`r5_r4 = r11_r10 #`) that master can;
   `tests/emu_test.py` checks every instruction with the emulator's `--check-decode` first.
-- Identity `FM-1_950` (95N): not in Dinghy's list of taken ones; check the hub before a release.
 
 ## Phases
 
