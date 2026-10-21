@@ -1,19 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Felucca memory map.
- * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120).
- * 0x01C00000..0x01C06000 holds .ram_text (code that must run while the flash
- * is busy: the flash driver); 0x01C06000..0x01C08000 stays for RAM-run debug.
+ * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120),
+ * up to fm1-harbor's slot table at 0x02030000 (flash 0x34000).
+ * 0x01C00000..0x01C04000 holds .ram_text (code that must run while the flash
+ * is busy: the flash driver); 0x01C04000..0x01C08000 is a module's .ram_text.
  * RAM  : .data/.bss (96 KiB)
- * POOL : big zero-initialised buffers (FX lines, canvases), section .pool
+ * POOL : big zero-initialised buffers (FX lines, canvases), section .pool, 64 KiB;
+ *        0x01C30000..0x01C74000 is the module RAM (firmware/harbor/hb_module.h)
  * STACKS with 256-byte guard bands; NOINIT survives resets and UBOOT entry.
  * 0x01C7FD50.. is reserved: boot_info, boot-state mailbox, vector table. */
 MEMORY
 {
-    XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x8DFBC
-    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x6000
+    XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x2FEE0
+    RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x4000
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 96K
-    POOL   (rw)  : ORIGIN = 0x01C20000, LENGTH = 0x54000
+    POOL   (rw)  : ORIGIN = 0x01C20000, LENGTH = 0x10000
     NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D50
 }
 SECTIONS

@@ -15,6 +15,12 @@
  * The app (dinghy.c) includes this file first and supplies:
  *   static void app_audio(int32_t *out, uint32_t n)   audio ISR: n stereo frames, L R L R, Q15 (+-32767), out is zero
  *   static void app_main(void)                        never returns; calls platform_poll() often (every few ms)
+ * and may define, before the include:
+ *   APP_FAULT_HOOK  a function called with the fault (fm1_crash_t) before the crash screen
+ *   APP_EARLY_INIT  a function called once before the timer and USB start
+ *   APP_SYSEX       int f(const uint8_t *p, uint32_t n): a USB SysEx frame (the 7-bit bytes between F0 and F7)
+ *                   before the updater sees it; 1: the app's (taken), 0: not
+ *   CV_MAX          the canvas size in pixels (default 240 x 64)
  */
 /* the panel by name: buttons (fm1_in.buttons, fm1_input_edges, fm1_led_key: bit / id), the encoders
  * (fm1_enc_take); the 27 note keys are fm1_in.notes bit 0 (F3) .. 26 (G5), LED id 14 + key */
@@ -54,7 +60,9 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "libc.c"
 #include "lcd.c"
+#ifndef CV_MAX
 #define CV_MAX (240u * 64u)                     /* the biggest text box drawn at once */
+#endif
 #include "gfx.c"
 
 #define FS 44100u                               /* the sample rate */
@@ -68,7 +76,12 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 
 /* ---- flash: read anywhere; erase / program only the update's staging area and the settings sector */
 #define SETTINGS_AT 0x000FC000u                 /* one 4 KiB sector of Felucca's globals area */
-#define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u))
+#ifndef APP_FL_LO                               /* the app's own flash area, if it has one */
+#define APP_FL_LO 0u
+#define APP_FL_HI 0u
+#endif
+#define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u) || \
+                             FL_IN(off, n, APP_FL_LO, APP_FL_HI))
 #include "fm1_flash.h"
 static uint8_t flash_ok;
 static int st_read(uint32_t off, void *dst, uint32_t n)
@@ -252,12 +265,23 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 extern void isr_alnk0(void);
 
 /* ---- the main loop's duties: watchdog, USB, the installer's update request, the MASTER knob */
+#ifdef APP_SYSEX
+static int APP_SYSEX(const uint8_t *p, uint32_t n);
+#endif
 static void platform_poll(void)
 {
     static int32_t knob_avg = 512 * 16;
     int32_t a;
     fm1_wdt_feed();
     usb_retry(fm1_ms);
+#ifdef APP_SYSEX
+    {
+        const uint8_t *p;
+        uint32_t n;
+        if (ota_frame_get(&p, &n) && APP_SYSEX(p, n))
+            ota_frame_done();                   /* the app's own SysEx: not the updater's */
+    }
+#endif
     ota_service();
     if (usb.ota_req) {
         usb.ota_req = 0;
@@ -283,11 +307,20 @@ static void platform_poll(void)
     }
 }
 
+#ifdef APP_FAULT_HOOK
+static void APP_FAULT_HOOK(const fm1_crash_t *c);   /* the app's: record the fault before the crash screen */
+#endif
+#ifdef APP_EARLY_INIT
+static void APP_EARLY_INIT(void);
+#endif
 static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
     uint32_t i, t0, v[3] = {c->vec, c->pc, c->rets};
     fm1_audio_stop();
+#ifdef APP_FAULT_HOOK
+    APP_FAULT_HOOK(c);
+#endif
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
     draw_text_box(0, 20, 240, &FONT_S, APP_NAME " CRASH", C_WHITE, 1);
     for (i = 0; i < 3u; i++) {
@@ -333,6 +366,9 @@ void fm1_cstart(void)
     fm1_input_init();
     fm1_adc_init();
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
+#ifdef APP_EARLY_INIT
+    APP_EARLY_INIT();                           /* the app's own peripherals, before the timer runs */
+#endif
     usb_start();
     fm1_timer5_start(isr_timer5, 4);
     fm1_guard_lock_top();

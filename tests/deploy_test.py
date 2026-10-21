@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""fm1-harbor's deploys in fm1-emu: modules sent into the DIN jack of the booted package (fm1-live
+--fwsc, --flash: the flash chip kept between runs, FM1_FLASH_CUT: a power cut half way through
+the Nth erase / program).
+  ./build.sh && tests/deploy_test.py [--cuts all|N]
+  - a new module goes in, runs, is there after a reboot, and goes again with DELETE;
+  - a damaged transfer is refused before the flash is touched;
+  - a power cut at every erase / program of a first deploy and of a replacing one: the host always
+    boots and plays, the table lists only modules that check out, and the module is the old or the new;
+  - a module that renders slower than real time is stopped, and the sine plays;
+  - a module's bank (CS-1's user presets) is there after a reboot.
+The test module (tests/modules/slow) is built here with tools/hbmod.py (JIELI_TOOLCHAIN)."""
+import argparse
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import zlib
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+SRC = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SRC / "tools"))
+import harbor  # noqa: E402
+import hbdeploy  # noqa: E402
+import hbmod  # noqa: E402
+
+FWSC = SRC / "build" / "harbor.fwsc"
+SINE = SRC / "build" / "modules" / "sine.hrbr"
+DT = (0x93000, 0x94000)
+NOTE = 21                                       # C4's key (14 + 7)
+failures = []
+
+
+def check(case, ok, why):
+    print(f"  {'ok  ' if ok else 'FAIL'} {case}: {why}")
+    if not ok:
+        failures.append(case)
+
+
+def variant(name, version):
+    """the sine module under another name / version (its CRC made again)"""
+    h, relocs, image = hbmod.parse(SINE.read_bytes())
+    h["name"], h["version"] = name, version
+    return hbmod.pack(h, relocs, image)
+
+
+def live(mode, ms, keys, flash, cut=None):
+    """one fm1-live run of the package; flash: the file it starts from and leaves its flash in.
+    shot: (stdout, the host's log); bench: (stdout, None)"""
+    with tempfile.TemporaryDirectory() as wd:
+        (Path(wd) / "work").mkdir()
+        env = dict(os.environ, FM1_BENCH_KEYS=",".join(keys))
+        env.pop("FM1_FLASH_CUT", None)
+        if cut is not None:
+            env["FM1_FLASH_CUT"] = str(cut)
+        ram = Path(wd) / "ram.bin"
+        if mode == "shot":
+            env["FM1_DUMPRAM"] = str(ram)
+        r = subprocess.run([str(harbor.live()), "--fwsc", str(FWSC), f"--{mode}", str(ms), "--flash", str(flash)],
+                           cwd=wd, capture_output=True, text=True, env=env)
+        if r.returncode or "halt" in r.stdout + r.stderr:
+            raise SystemExit(f"fm1-live: {r.stdout[-2000:]}{r.stderr[-2000:]}")
+        return r.stdout, harbor.read_log(ram.read_bytes()) if mode == "shot" else None
+
+
+def ops(out):
+    for ln in out.splitlines():
+        if ln.startswith("flash: "):
+            return int(ln.split()[1])
+    return 0
+
+
+def peak(out):
+    return int(out.split("audio peak over the last 0.5 s: ")[1].split()[0]) if "audio peak" in out else 0
+
+
+def table(flash):
+    """the deployed modules as the flash holds them: [(name, version, flash offset)] of the table in
+    force (the valid copy with the higher sequence number), each checked against its CRC"""
+    best = None
+    for at in DT:
+        magic, seq, n, crc = struct.unpack_from("<4I", flash, at)
+        if magic != 0x54444248 or n > 32:
+            continue
+        ent = flash[at + 16:at + 16 + 16 * n]
+        if zlib.crc32(struct.pack("<II", seq, n) + ent) != crc:
+            continue
+        if best is None or (seq - best[0]) & 0xFFFFFFFF < 0x80000000:
+            best = (seq, ent)
+    out = []
+    for i in range(len(best[1]) // 16 if best else 0):
+        magic, xip, size, crc = struct.unpack_from("<4I", best[1], 16 * i)
+        off = xip - 0x02000000 + 0x4000
+        h, relocs, image = hbmod.parse(flash[off:off + size])
+        head = flash[off:off + 76]
+        ok = hbmod.crc_of(head, relocs, image) == h["crc"] == crc
+        out.append((h["name"], h["version"], off, ok))
+    return out
+
+
+def boots_and_plays(flash):
+    out, log = live("shot", 1500, [f"900:{NOTE}"], flash)
+    refused = [ln for ln in log.splitlines() if "slot refused 0002" in ln]
+    return "boot" in log and peak(out) > 1000 and not refused, log
+
+
+def deploy_keys(blob, at=600):
+    keys, done = hbdeploy.din_script(blob, at)
+    return keys, done
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--cuts", default="all", help="all, or every Nth power-cut point")
+    a = ap.parse_args()
+    step = 1 if a.cuts == "all" else int(a.cuts)
+    wd = Path(tempfile.mkdtemp(prefix="hb-deploy-"))
+    try:
+        v1, v2 = variant("TESTSINE", 1), variant("TESTSINE", 2)
+
+        # a new module: in, running, there after a reboot, and gone with DELETE
+        f1 = wd / "f1.bin"
+        keys, done = deploy_keys(v1)
+        out, log = live("shot", int(done) + 900, keys + [f"{int(done) + 300}:{NOTE}"], f1)
+        t = table(f1.read_bytes())
+        check("deploy", "deploy: done" in log and "slot ok 0002" in log and peak(out) > 1000 and
+              [(n, v, ok) for n, v, _, ok in t] == [("TESTSINE", 1, True)],
+              f"a new module over the DIN jack: {ops(out)} erases / programs, in flash at {t[0][2]:#x} if any, then playing")
+        ok, log = boots_and_plays(f1)
+        check("deploy_reboot", ok and "TESTSINE" in log, "after a reboot it is in the list")
+        f2 = wd / "f2.bin"
+        shutil.copy(f1, f2)
+        delete = hbdeploy.frame(hbdeploy.DELETE, 1, hbdeploy.name24("TESTSINE"))
+        out, log = live("shot", 1200, [f"700:m{delete.hex()}"], f2)
+        check("delete", "deploy: deleted" in log and table(f2.read_bytes()) == [], "DELETE takes it out of the table")
+
+        # a damaged transfer: refused before any erase / program
+        f3 = wd / "f3.bin"
+        frames = hbdeploy.deploy_frames(v1)
+        cmd, payload = frames[3]
+        frames[3] = (cmd, payload[:20] + bytes([payload[20] ^ 1]) + payload[21:])   # (its own frame CRC made anew)
+        keys, t = [], 600
+        for i, (c, p) in enumerate(frames):
+            f = hbdeploy.frame(c, i, p)
+            t += 400 if c == hbdeploy.COMMIT else 0
+            keys.append(f"{int(t)}:m{f.hex()}")
+            t += len(f) * hbdeploy.BYTE_MS + (400 if c == hbdeploy.BEGIN else 0)
+        out, log = live("shot", int(t) + 2500, keys + [f"{int(t) + 2000}:{NOTE}"], f3)
+        check("bad_transfer", "deploy failed 00000001" in log and ops(out) == 0 and peak(out) > 1000,
+              f"a chunk changed on the way: BAD CRC at COMMIT, {ops(out)} erases / programs, the sine plays on")
+
+        # power cuts at every erase / program
+        def cuts(name, base, blob, allowed):
+            keys, done = deploy_keys(blob)
+            ms = int(done) + 300
+            full = wd / f"{name}_full.bin"
+            if base:
+                shutil.copy(base, full)
+            out, _ = live("bench", ms, keys, full)
+            n = ops(out)
+            new = sorted((nm, v) for nm, v, _, good in table(full.read_bytes()) if good)
+            points = list(range(1, n + 1, step))
+
+            def one(k):
+                f = wd / f"{name}_cut{k}.bin"
+                if base:
+                    shutil.copy(base, f)
+                live("bench", ms, keys, f, cut=k)
+                ok, log = boots_and_plays(f)
+                got = sorted((nm, v) for nm, v, _, good in table(f.read_bytes()) if good)
+                bad = [x for x in table(f.read_bytes()) if not x[3]]
+                return k, ok and not bad and got in allowed, got
+            with ThreadPoolExecutor(4) as ex:
+                res = list(ex.map(one, points))
+            seen = sorted({str(g) for _, _, g in res})
+            fails = [k for k, ok, _ in res if not ok]
+            check(name, not fails and new == allowed[1], f"{len(points)} power cuts in {n} erases / programs: the host "
+                  f"boots and plays every time; the table afterwards: {' or '.join(seen)} (uncut: {new})" +
+                  (f"; failed at {fails}" if fails else ""))
+            return full
+
+        cuts("cut_first", None, v1, ([], [("TESTSINE", 1)]))
+        cuts("cut_replace", f1, v2, ([("TESTSINE", 1)], [("TESTSINE", 2)]))
+
+        # too slow: stopped, the sine plays
+        r = subprocess.run([sys.executable, str(SRC / "tools" / "hbmod.py"), str(SRC / "tests" / "modules" / "slow")],
+                           capture_output=True, text=True, cwd=SRC)
+        if r.returncode:
+            raise SystemExit(f"hbmod tests/modules/slow: {r.stdout}{r.stderr}")
+        f5 = wd / "f5.bin"
+        keys, done = deploy_keys((SRC / "build" / "modules" / "slow.hrbr").read_bytes())
+        t = int(done) + 300
+        out, log = live("shot", t + 3000, keys + [f"{t}:{NOTE}", f"{t + 1800}:{NOTE}^", f"{t + 2300}:{NOTE + 2}"], f5)
+        stop = [int(ln.split()[0]) for ln in log.splitlines() if "too slow: stopped" in ln]
+        check("too_slow", "slow: ready" in log and stop and stop[0] - t < 1200 and "started 00000000" in log.split("too slow")[-1]
+              and peak(out) > 1000, f"a module 1.5 blocks slow is stopped {stop[0] - t if stop else '-'} ms after it got slow; "
+              "the sine plays the next key")
+
+        # a module's bank: CS-1's user presets, there after a reboot
+        img = (SRC / "build" / "harbor.bin").read_bytes()
+        names = []
+        for i in range(32):
+            magic, at, size, crc = struct.unpack_from("<IIII", img, 0x30000 - 0x120 + 16 * i)
+            if magic != 0x544F4C53:
+                break
+            names.append(hbmod.parse(img[at - 0x02000120:at - 0x02000120 + size])[0]["name"])
+        if "CS-1" in names:
+            idx = 1 + names.index("CS-1")
+            pick = f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
+            f4 = wd / "f4.bin"
+            out, log = live("shot", 2600, [pick, "1800:9", "1850:9^", "2100:9", "2150:9^"], f4)
+            saved = "bank saved" in log
+            out, log = live("shot", 1800, [pick], f4)
+            check("bank", saved and "bank loaded" in log, "CS-1 saves a user preset (SAVE, SAVE); after a reboot its bank loads")
+    finally:
+        shutil.rmtree(wd, ignore_errors=True)
+    print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

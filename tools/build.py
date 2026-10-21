@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build Dinghy (on Felucca / SLOOP's platform): the app, the update loader and an installable .fwsc package.
+"""Build fm1-harbor (on Dinghy, on Felucca / SLOOP's platform): the host, the modules, the update
+loader and an installable .fwsc package.
 
-  tools/build.py [--release X.Y[-suffix]]
+  tools/build.py [--release X.Y[-suffix]] [--modules sine,sid] [--no-package]
 
-Outputs in build/: dinghy.bin (app), loader/ota.bin (update loader),
-dinghy.fwsc (package). See README.md for the toolchain and the SDK.
+Outputs in build/: harbor.bin (the app: the host, the slot table, the modules), harbor_xip.bin
+(the same as fm1-emu / fm1-live --bin take it), modules/*.hrbr, loader/ota.bin (update loader),
+harbor.fwsc (package; --no-package skips it, and the SDK). See README.md for the toolchain and
+the SDK.
 
 The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
 macOS (or with JIELI_DOCKER=1) each tool runs in a linux/amd64 container.
@@ -47,7 +50,7 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-PRODUCT = "FM-1_990"                # Dinghy: 99N (OUR_LOADER in the installer wants FM-1_9NN). Your fork: pick your own
+PRODUCT = "FM-1_950"                # fm1-harbor: 95N (Dinghy is 99N; OUR_LOADER in the installer wants FM-1_9NN)
 VERSION = None                      # APP_VER for release builds
 
 
@@ -69,6 +72,8 @@ def tc(tool, *args):
     rel = [str(Path(a).resolve().relative_to(SRC)) if isinstance(a, Path) else a for a in args]
     if tool == "cc":                # the toolchain's cc wrapper needs python3; call clang directly
         tool, rel = "pi32v2/bin/clang", ["-target", "pi32v2", *rel]
+    elif tool == "cxx":
+        tool, rel = "pi32v2/bin/clang++", ["-target", "pi32v2", *rel]
     if use_docker():
         cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work",
                "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work", DOCKER_IMAGE, f"/opt/jieli/{tool}", *rel]
@@ -150,16 +155,25 @@ def build_loader():
 
 # ---- app
 
+APP = "harbor"
+SLOT_TABLE = 0x02030000             # firmware/src/harbor.c HB_TABLE_AT (flash 0x34000)
+SLOT_FIRST = SLOT_TABLE + 0x1000
+
+
 def build_app():
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"']
+    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/harbor",
+             f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"']
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-            ("cc", *flags, "-c", FW / "src" / "dinghy.c", "-o", OUT / "dinghy.o")]
+            ("cc", *flags, "-c", FW / "src" / f"{APP}.c", "-o", OUT / f"{APP}.o"),
+            # the fallback sound: modules/sine as part of the host (its descriptor renamed)
+            ("cc", *CFLAGS, "-Ifirmware/harbor", "-DHB_DESC=const hb_module_t hb_builtin_sine",
+             "-c", SRC / "modules" / "sine" / "sine.c", "-o", OUT / "sine_builtin.o")]
     tc_all(*cmds)
-    elf = OUT / "dinghy.elf"
+    elf = OUT / f"{APP}.elf"
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
-       OUT / "fm1_isr.o", OUT / "dinghy.o", "-o", elf)
+       OUT / "fm1_isr.o", OUT / f"{APP}.o", OUT / "sine_builtin.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
@@ -168,7 +182,8 @@ def build_app():
                                ("common/bin/objdump", "-t", elf),
                                ("common/bin/objdump", "-d", elf),
                                ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
-    (OUT / "dinghy.dis").write_text(dis)
+    (OUT / f"{APP}.dis").write_text(dis)
+    (OUT / f"{APP}.syms").write_text(syms)
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
@@ -185,8 +200,30 @@ def build_app():
             img += b"\xff" * (load - APP_XIP - len(img))
             img += blob
     img += b"\xff" * (-len(img) % 4)
-    (OUT / "dinghy.bin").write_bytes(img)
+    (OUT / "host.bin").write_bytes(img)
     return bytes(img), syms, dis, rt
+
+
+def pack_slots(host, modules):
+    """the app image: the host, 0xFF up to the slot table, the table, each module in its own 4 KiB
+    aligned slot, relocated to run there (hbmod.move)"""
+    import hbmod
+    if APP_XIP + len(host) > SLOT_TABLE:
+        raise SystemExit(f"the host ({len(host)} B) runs into the slot table at {SLOT_TABLE:#x}")
+    img = bytearray(host + b"\xff" * (SLOT_TABLE - APP_XIP - len(host)))
+    table = bytearray(b"\xff" * 0x1000)
+    slots = bytearray()
+    for i, path in enumerate(modules):
+        at = SLOT_FIRST + len(slots)
+        blob = hbmod.move(Path(path).read_bytes(), at)
+        h, _, _ = hbmod.parse(blob)
+        struct.pack_into("<IIII", table, 16 * i, 0x544F4C53, at, len(blob), h["crc"])   # "SLOT"
+        slots += blob + b"\xff" * (-len(blob) % 0x1000)
+        print(f"  slot {i}  {at:#010x}  {h['name']:<10} {len(blob):7} B, runs at {h['base']:#010x}")
+    img += table + slots
+    if len(img) > APP_SLOT:
+        raise SystemExit(f"host + modules: {len(img)} B > the app slot ({APP_SLOT} B)")
+    return bytes(img)
 
 
 def check(img, syms, dis, rt):
@@ -209,15 +246,16 @@ def check(img, syms, dis, rt):
             val = (int(v[0]) & 0xFFFFFFFF) if v[0] else int(v[1], 16) & 0xFFFFFFFF
             if 0xFFC00000 <= val < 0xFFD00000:
                 errors.append(f"reference to ROM address {val:#010x}")
-    if len(img) > APP_SLOT:
-        errors.append(f"image {len(img)} B exceeds the app slot")
+    if APP_XIP + len(img) > SLOT_TABLE:
+        errors.append(f"host {len(img)} B runs into the slot table")
 
     def sym(name):
         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
         return int(mm.group(1), 16) if mm else 0
     ram = sym("_bss_end") - 0x01C08000
     pool = sym("_pool_end") - 0x01C20000
-    notes.append(f"image {len(img)} B of {APP_SLOT}; RAM .data+.bss {ram} B of 98304; pool {pool} B of 344064")
+    notes.append(f"host {len(img)} B of {SLOT_TABLE - APP_XIP}; RAM .data+.bss {ram} B of 98304; pool {pool} B of 65536 "
+                 "(the module RAM follows)")
     if ram > 96 * 1024:
         errors.append(f"RAM .data+.bss {ram} B > 96 KiB")
     return errors, notes
@@ -253,9 +291,9 @@ def mmio_check():
             break
         regs |= more
     errors = []
-    for f in sorted([*(FW / "src").glob("*.[ch]"), *(FW / "loader").glob("*.c")]):
+    for f in sorted([*(FW / "src").glob("*.[ch]"), *(FW / "loader").glob("*.c"), *(SRC / "modules").glob("*/*.c")]):
         for no, ln in enumerate(strip(f.read_text()).splitlines(), 1):
-            where = f"{f.relative_to(FW)}:{no}"
+            where = f"{f.relative_to(SRC)}:{no}"
             for rx, what in ((MMIO_LIT, "register/window address"), (MMIO_CAST, "volatile pointer cast"),
                              (MMIO_ASM, "inline asm")):
                 m = rx.search(ln)
@@ -270,38 +308,52 @@ def mmio_check():
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_9XY, version string X.Y")
+    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_95Y, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
+    ap.add_argument("--modules", help="the modules to pack, in slot order (default: every modules/<dir>)")
+    ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
     a = ap.parse_args()
-    name = "dinghy.fwsc"
+    name = f"{APP}.fwsc"
     if a.release:                   # one digit each: the identity has room for two (X.Y; a .Z only in the text)
         m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
-        PRODUCT = "FM-1_99" + m[2]
+        PRODUCT = "FM-1_95" + m[2]
         VERSION = m[1] + "." + m[2] + (m[3] or "")
-        name = f"dinghy-{a.release}.fwsc"
+        name = f"{APP}-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
-    for rel, sha in SDK_SHA256.items():          # fail early without the SDK
-        if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
-            print(f"warning: SDK {rel} differs from AC79NN_SDK_V1.2.1; the package will not match the reference")
+    if not a.no_package:
+        for rel, sha in SDK_SHA256.items():      # fail early without the SDK
+            if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
+                print(f"warning: SDK {rel} differs from AC79NN_SDK_V1.2.1; the package will not match the reference")
     OUT.mkdir(parents=True, exist_ok=True)
+    import hbmod
+    dirs = ([SRC / "modules" / d for d in a.modules.split(",")] if a.modules else
+            sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c"))))
     ota = build_loader()
-    img, syms, dis, rt = build_app()
-    errors, notes = check(img, syms, dis, rt)
+    host, syms, dis, rt = build_app()
+    errors, notes = check(host, syms, dis, rt)
     hal_err = mmio_check()
     errors += hal_err
     if not hal_err:
-        notes.append("register access: hal/ only (src/, loader/ clean)")
+        notes.append("register access: hal/ only (src/, loader/, modules/ clean)")
     for n in notes:
         print("  ok   ", n)
     for e in errors:
         print("  FAIL ", e)
     if errors:
         raise SystemExit("build: checks failed")
+    mods = [hbmod.build_module(d) for d in dirs]
+    img = pack_slots(host, mods)
+    (OUT / f"{APP}.bin").write_bytes(img)
+    (OUT / f"{APP}_xip.bin").write_bytes(b"\0" * 0x120 + img)
+    print(f"host     {OUT / 'host.bin'}  {len(host)} B of {SLOT_TABLE - APP_XIP}")
+    print(f"app      {OUT / (APP + '.bin')}  {len(img)} B of {APP_SLOT}, {len(mods)} modules")
+    print(f"fm1-emu  {OUT / (APP + '_xip.bin')}  (fm1-live --bin)")
+    if a.no_package:
+        return 0
     pkg = fm1pkg_make.ufw(fm1pkg_make.flash_image(img, fm1pkg_make.KEY), ota, PRODUCT)
     (OUT / name).write_bytes(pkg)
-    print(f"app      {OUT / 'dinghy.bin'}  {len(img)} B")
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
     return 0

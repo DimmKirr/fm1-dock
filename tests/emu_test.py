@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+"""fm1-harbor in fm1-emu (fm1-live, headless): the host and its modules, end to end.
+  ./build.sh --no-package && tests/emu_test.py
+Each case runs the firmware with a key / MIDI script and checks the sound and the host's log.
+The slots are looked up by name in build/harbor.bin's table, so the order may change."""
+import os
+import re
+import struct
+import subprocess
+import sys
+import tempfile
+import wave
+from pathlib import Path
+
+SRC = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SRC / "tools"))
+import hbmod  # noqa: E402
+
+OUT = SRC / "build" / "emu"
+APP = SRC / "build" / "harbor_xip.bin"
+failures = []
+
+
+def slots():
+    """[(name, at)] from the slot table in the XIP image; the picker lists the built-in sine first"""
+    img = APP.read_bytes()
+    out = []
+    for i in range(32):
+        magic, at, size, crc = struct.unpack_from("<IIII", img, 0x30000 + 16 * i)
+        if magic != 0x544F4C53:
+            break
+        h, _, _ = hbmod.parse(img[at - 0x02000000:at - 0x02000000 + size])
+        out.append((h["name"], at, h))
+    return out
+
+
+def pick(name):
+    """the key script that opens the picker and loads `name` (at 700..1150 ms)"""
+    idx = 1 + [n for n, _, _ in slots()].index(name)
+    return f"700:8,750:8^,900:e6:{idx},1100:8,1150:8^"
+
+
+def run(case, keys, ms, binp=APP):
+    r = subprocess.run([sys.executable, str(SRC / "tools" / "harbor.py"), "emu", "--bin", str(binp), "--ms", str(ms),
+                        "--keys", keys, "--out", str(OUT / case)], capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit(f"{case}: {r.stderr or r.stdout}")
+    w = wave.open(str(OUT / case / "audio.wav"))
+    d = w.readframes(w.getnframes())
+    s = struct.unpack(f"<{len(d) // 2}h", d)
+    log = (OUT / case / "log.txt").read_text()
+    return s, log
+
+
+def peak(s, t0, t1):
+    """the peak between t0 and t1 s of the WAV (it starts when the audio does, ~0.2 s after boot)"""
+    return max((abs(x) for x in s[int(t0 * 44100) * 2:int(t1 * 44100) * 2]), default=0)
+
+
+def check(case, ok, why):
+    print(f"  {'ok  ' if ok else 'FAIL'} {case}: {why}")
+    if not ok:
+        failures.append(case)
+
+
+def onset_frames(s):
+    first = next((i for i, x in enumerate(s) if x), len(s))
+    return s[first - first % 2:]
+
+
+LINE = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*\t(.*)$")
+NEVER_RUN = {"wfe", "sevl", "sevg", "trigger"}   # (multicore events in library code; the host's debug trigger)
+
+
+def decode_check():
+    """every instruction of the host and the modules through the emulator's own decoder (fm1-emu
+    --check-decode, next to fm1-live): what it cannot run fails here, not mid-test"""
+    emu = Path(os.environ.get("FM1_LIVE", Path.home() / "work/fm1-emu/target/release/fm1-live")).with_name("fm1-emu")
+    for dis in [SRC / "build" / "harbor.dis", *sorted((SRC / "build" / "modules").glob("*/module.dis"))]:
+        rows = [(m.group(2).split(), m.group(3).strip()) for m in map(LINE.match, dis.read_text().splitlines())
+                if m and not m.group(3).startswith("<")]
+        text = "\n".join("".join(b + (rows[i + 1][0] if i + 1 < len(rows) else ["00", "00"])) for i, (b, _) in enumerate(rows))
+        with tempfile.NamedTemporaryFile("w", suffix=".txt") as f:
+            f.write(text + "\n")
+            f.flush()
+            out = subprocess.run([str(emu), "--check-decode", f.name], capture_output=True, text=True).stdout.splitlines()
+        name = dis.parent.name if dis.parent.name != "build" else "host"
+        if len(out) != len(rows):
+            check(f"decode {name}", False, f"{emu} has no --check-decode (an fm1-emu older than 2026-10-19?)")
+            continue
+        bad = sorted({asm for (b, asm), o in zip(rows, out) if o.split("|")[-1] != "ok" and asm.split()[0] not in NEVER_RUN})
+        check(f"decode {name}", not bad, f"{len(rows)} instructions, all known to the emulator" if not bad else
+              f"unknown to the emulator: {', '.join(bad[:6])}")
+
+
+def main():
+    names = [n for n, _, _ in slots()]
+    print(f"slots: {', '.join(names)}")
+    decode_check()
+
+    s, log = run("boot", "1000:14,1600:14^", 2200)
+    check("boot", "started 00000000" in log and peak(s, 0.9, 1.3) > 1000 and peak(s, 1.8, 2.0) == 0,
+          "the built-in sine starts and plays a key")
+
+    if "SINE" in names:
+        a, _ = run("sine_builtin", "1500:14,1900:14^", 2600)
+        b, log = run("sine_slot", pick("SINE") + ",1500:14,1900:14^", 2600)
+        a, b = onset_frames(a), onset_frames(b)
+        n = min(len(a), len(b))
+        check("sine_slot", n > 40000 and a[:n] == b[:n] and "started 0000000" in log,
+              f"the sine from its slot is bit-identical to the built-in one ({n // 2} frames)")
+
+    if "SID" in names:
+        s, log = run("sid", pick("SID") + ",1800:14,1800:18,1800:21,3000:14^,3000:18^,3000:21^", 3600)
+        st = log.split("render: last ")[1]
+        worst = float(st.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("sid", "sid: FM-1 SID's synth" in log and peak(s, 1.7, 2.6) > 1000 and peak(s, 0.0, 1.5) == 0 and
+              " 0 overruns" in log and worst < 50, f"SID (FM-1 SID, reSID) plays a chord, no click before it; worst {worst} % of a block")
+
+        if "CS-1" in names:                     # HOME held 1.5 s in a panel module: the list; then CS-1
+            idx = 1 + names.index("CS-1") - (1 + names.index("SID"))
+            s, log = run("home_hold", pick("SID") + f",1600:8,3400:8^,3600:e6:{idx},3800:8,3850:8^,4300:14,4700:14^", 5000)
+            starts = [ln.split()[-1] for ln in log.splitlines() if ln.split()[1:2] == ["started"]]
+            check("home_hold", log.count("started") == 3 and "cs1: CS-1" in log and peak(s, 4.1, 4.5) > 500,
+                  "HOME held in SID opens the module list; CS-1 loads from it and plays")
+
+        img = bytearray(APP.read_bytes())
+        at = dict((n, a) for n, a, _ in slots())["SID"]
+        img[at - 0x02000000 + 0x1000] ^= 0x40          # a bit in its code
+        bad = SRC / "build" / "harbor_badcrc_xip.bin"
+        bad.write_bytes(img)
+        s, log = run("bad_crc", pick("SID") + ",1600:14,2000:14^", 2500, bad)
+        check("bad_crc", "slot refused" in log and "SID" not in log.split("started")[-1] and peak(s, 1.3, 1.8) > 1000,
+              "a module with a bad CRC is refused; the sine plays on")
+
+    if "CS-1" in names:
+        keys = pick("CS-1") + "".join(f",1800:{k},3200:{k}^" for k in (14, 16, 18, 19, 21, 23, 25, 26))
+        s, log = run("cs1", keys, 4000)
+        worst = float(log.split("worst ")[1].split("(")[1].split(" %")[0])
+        check("cs1", "cs1: CS-1" in log and peak(s, 1.7, 3.0) > 1000 and " 0 overruns" in log and worst < 90,
+              f"CS-1 plays eight voices on core 0; worst {worst} % of a block")
+
+    s, log = run("din_midi", "1000:m903c64,1500:m803c00,1700:m9045,1800:m40", 2500)
+    check("din_midi", peak(s, 0.9, 1.2) > 1000 and peak(s, 1.4, 1.5) < peak(s, 0.9, 1.2) and peak(s, 1.7, 2.0) > 1000,
+          "the DIN jack plays notes (and running status split across bytes)")
+
+    print("all passed" if not failures else f"FAILED: {', '.join(failures)}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
