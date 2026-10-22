@@ -18,10 +18,11 @@ import zlib
 
 MAN = bytes([0x7D, 0x48, 0x42])                 # 7D: non-commercial; "HB"
 HELLO, LIST, BEGIN, DATA, COMMIT, ABORT, DELETE, LOG, SAFE, SELECT = 0x01, 0x02, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22
+RUN, RESULT = 0x30, 0x31                       # probes (tools/probe.py): RUN in place of COMMIT, from RAM
 STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed", "data missing",
           "not started", "not found", "bad message"]
 STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"]
-KIND = ["built in", "image", "deployed"]
+KIND = ["built in", "image", "deployed", "boot"]
 CHUNK = 256
 BYTE_MS = 10 * 1000 / 31250                     # a MIDI byte on the DIN jack: 0.32 ms
 HRBR_MAGIC = 0x52425248                         # "HRBR"
@@ -84,22 +85,34 @@ def module_info(blob):
     return name, version
 
 
-def deploy_frames(blob):
-    """(cmd, payload) for BEGIN, every DATA chunk, COMMIT"""
+def deploy_frames(blob, last=None):
+    """(cmd, payload) for BEGIN, every DATA chunk, COMMIT (or `last`: a probe's RUN)"""
     name, _ = module_info(blob)
     out = [(BEGIN, struct.pack("<II", len(blob), zlib.crc32(blob)) + name24(name))]
     for off in range(0, len(blob), CHUNK):
         out.append((DATA, struct.pack("<I", off) + blob[off:off + CHUNK]))
-    out.append((COMMIT, b""))
+    out.append(last or (COMMIT, b""))
     return out
 
 
-def din_script(blob, t0, settle=400, write_ms=None):
+SECTOR_MS = 150                                 # a 4 KiB erase + program, with room (a boot firmware's)
+
+
+def is_boot(blob):
+    return len(blob) >= 12 and struct.unpack_from("<I", blob, 8)[0] & 0x200 != 0   # HB_F_BOOT
+
+
+def run_payload(run_id, arg=b""):
+    return struct.pack("<I", run_id) + arg
+
+
+def din_script(blob, t0, settle=400, write_ms=None, last=None):
     """the deploy as fm1-live FM1_BENCH_KEYS MIDI entries (`ms:mHEX`), paced for a device that cannot
     answer: BEGIN at t0, the data `settle` ms later (back to back: the jack's byte time paces them),
     COMMIT after. Returns (entries, ms the COMMIT has arrived by)."""
     out, t = [], t0
-    for i, (cmd, payload) in enumerate(deploy_frames(blob)):
+    boot = is_boot(blob)
+    for i, (cmd, payload) in enumerate(deploy_frames(blob, last)):
         f = frame(cmd, i, payload)
         if cmd != DATA:
             t += settle if cmd == COMMIT else 0
@@ -107,6 +120,8 @@ def din_script(blob, t0, settle=400, write_ms=None):
         t += len(f) * BYTE_MS
         if cmd == BEGIN:
             t += settle
+        if boot and cmd == DATA and i % 16 == 0:   # a boot firmware: its sector is written now
+            t += SECTOR_MS
     return out, t
 
 
@@ -190,7 +205,7 @@ def modules(p):
         if d[1] == 0xFF:
             break
         version, size, at = struct.unpack_from("<III", d, 4)
-        out.append(dict(index=d[1], state=STATE[d[2]] if d[2] < len(STATE) else d[2], kind=KIND[d[3]] if d[3] < 3 else d[3],
+        out.append(dict(index=d[1], state=STATE[d[2]] if d[2] < len(STATE) else d[2], kind=KIND[d[3]] if d[3] < 4 else d[3],
                         version=version, size=size, at=at, name=d[16:40].split(b"\0")[0].decode("latin-1")))
     return out
 
@@ -202,7 +217,7 @@ def deploy(p, blob, say=print):
         if h["abi"] != struct.unpack_from("<I", blob, 4)[0]:
             raise SystemExit(f"the FM-1's harbor speaks ABI {h['abi']}, {name} was built for "
                              f"{struct.unpack_from('<I', blob, 4)[0]}: update one of them")
-        if len(blob) > h["max_file"]:
+        if len(blob) > h["max_file"] and not is_boot(blob):
             raise SystemExit(f"{name}: {len(blob)} B, harbor takes up to {h['max_file']} B")
         say(f"{name} v{version}, {len(blob)} B; the FM-1 has {h['free'] // 1024} KiB free "
             f"(largest gap {h['largest'] // 1024} KiB)")
@@ -213,10 +228,12 @@ def deploy(p, blob, say=print):
             p.send(cmd, payload)
             if cmd == BEGIN:
                 time.sleep(0.4)
+            if cmd == DATA and is_boot(blob) and i % 16 == 0:
+                time.sleep(SECTOR_MS / 1000)
             if cmd == DATA and i % 32 == 0:
                 say(f"  {min(len(blob), (i - 1) * CHUNK + CHUNK) * 100 // len(blob):3d} %")
             continue
-        d = p.ask(cmd, payload, timeout=30.0 if cmd == COMMIT else 1.0, tries=1 if cmd == COMMIT else 4)
+        d = p.ask(cmd, payload, timeout=30.0 if cmd == COMMIT else 2.0, tries=1 if cmd == COMMIT else 4)
         if d[0] != 0:
             if cmd != COMMIT:
                 p.send(ABORT)

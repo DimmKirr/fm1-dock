@@ -208,6 +208,9 @@ def pack_slots(host, modules):
     """the app image: the host, 0xFF up to the slot table, the table, each module in its own 4 KiB
     aligned slot, relocated to run there (hbmod.move)"""
     import hbmod
+    boot_lo = 0x02000000 + 0x14000 - 0x4000      # hb_module.h HB_BOOT_LO: a boot firmware's first sector
+    if APP_XIP + len(host) > boot_lo:
+        raise SystemExit(f"the host ({len(host)} B) runs into the boot slot at flash 0x14000")
     if APP_XIP + len(host) > SLOT_TABLE:
         raise SystemExit(f"the host ({len(host)} B) runs into the slot table at {SLOT_TABLE:#x}")
     img = bytearray(host + b"\xff" * (SLOT_TABLE - APP_XIP - len(host)))

@@ -134,26 +134,19 @@ static uint32_t glyph(const felucca_font_t *f, uint32_t ch)
     return ch - f->first;
 }
 
-/* text, alpha-blended onto black with colour c; returns the end x */
+/* text in colour c (the glyphs: 1 bit per pixel, MSB first, tools/font_1bpp.py); returns the end x */
 static int32_t cv_text(int32_t x, int32_t y, const felucca_font_t *f, const char *s, uint16_t c)
 {
-    uint16_t ramp[16];
-    uint32_t r = c >> 11, g = (c >> 5) & 63u, b = c & 31u, a;
-    for (a = 0; a < 16u; a++)
-        ramp[a] = (uint16_t)(((r * a / 15u) << 11) | ((g * a / 15u) << 5) | (b * a / 15u));
     for (; *s; s++) {
         uint32_t gi = glyph(f, (uint8_t)*s), gx, gy, w, bpr;
         const uint8_t *gd;
         w = f->bw[gi];
-        bpr = (w + 1u) / 2u;
+        bpr = (w + 7u) / 8u;
         gd = f->data + f->off[gi];
         for (gy = 0; gy < f->h; gy++)
-            for (gx = 0; gx < w; gx++) {
-                uint32_t v = gd[gy * bpr + gx / 2u];
-                v = (gx & 1u) ? (v & 15u) : (v >> 4);
-                if (v)
-                    cv_pset(x - f->pad + (int32_t)gx, y + (int32_t)gy, ramp[v]);
-            }
+            for (gx = 0; gx < w; gx++)
+                if (gd[gy * bpr + gx / 8u] >> (7u - (gx & 7u)) & 1u)
+                    cv_pset(x - f->pad + (int32_t)gx, y + (int32_t)gy, c);
         x += f->adv[gi];
     }
     return x;

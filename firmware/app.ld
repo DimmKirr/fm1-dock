@@ -16,7 +16,8 @@ MEMORY
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x4000
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 96K
     POOL   (rw)  : ORIGIN = 0x01C20000, LENGTH = 0x10000
-    NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D50
+    NOINIT (rw)  : ORIGIN = 0x01C7C000, LENGTH = 0x3D40
+    HBGO   (rw)  : ORIGIN = 0x01C7FD40, LENGTH = 0x10    /* harbor's boot slot counter: above a boot firmware's NOINIT */
 }
 SECTIONS
 {
@@ -28,6 +29,7 @@ SECTIONS
     .bss (NOLOAD) : { _bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _bss_end = .; } > RAM
     .pool (NOLOAD) : { _pool_start = .; *(.pool*) . = ALIGN(4); _pool_end = .; } > POOL
     .noinit (NOLOAD) : { *(.noinit*) } > NOINIT
+    .hbgo (NOLOAD) : { *(.hbgo*) } > HBGO
     _guard0 = 0x01C74000; _ustack_lo = 0x01C74100; _ustack_top = 0x01C7A000;
     _guard1 = 0x01C7A000; _sstack_lo = 0x01C7A100; _sstack_top = 0x01C7C000;
     /DISCARD/ : { *(.comment) *(.note*) }

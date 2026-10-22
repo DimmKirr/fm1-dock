@@ -4,10 +4,12 @@
 
   tools/hbmod.py modules/sine [modules/sid ...]     -> build/modules/<dir>.hrbr
   tools/hbmod.py --info build/modules/sine.hrbr
+  tools/hbmod.py probes/timing.c                     -> build/probes/timing.hrbr (tools/probe.py)
 
 A module is a directory of C / C++ files (*.c, *.cc), and module.cfg: `name =`, `version =`,
 `cflags =`, `cxxflags =` (C++ only), `sources =` for files elsewhere (relative to the directory),
-`libs =` toolchain libraries (`m c` for libm and libc). Every module also gets
+`libs =` toolchain libraries (`m c` for libm and libc), `kind = probe` for a probe (hb_module.h,
+"Probes": probes/probe.ld, flag HB_F_PROBE; a single .c file is a probe by itself). Every module also gets
 modules/lib/hb_lib.c (memcpy, memset, ...) and the toolchain's compiler_rt (division, 64-bit and
 soft-float helpers): it links against nothing of the host's.
 
@@ -42,6 +44,9 @@ HDR = struct.Struct("<III24sIIIIIIIIIII")      # hb_file_t, 80 bytes
 assert HDR.size == 80
 MOD_RAM, MOD_RAM_SIZE = 0x01C30000, 0x44000
 MOD_RT, MOD_RT_SIZE = 0x01C04000, 0x4000
+PROBE_RAM, PROBE_RAM_SIZE, PROBE_FILE = 0x01C60000, 0x14000, 0x30000
+HB_F_PROBE = 0x100
+PROBES = SRC / "probes"
 CFLAGS = ["-O2", "-ffunction-sections", "-fdata-sections", "-fno-builtin", "-ffreestanding", "-Wall",
           "-Wno-unused-function", "-Ifirmware/harbor", "-Imodules/lib"]
 FIELDS = ("magic", "abi", "flags", "name", "version", "code_size", "data_size", "bss_size", "rt_size",
@@ -114,7 +119,10 @@ def find_relocs(a, b):
 
 
 def read_cfg(d):
-    cfg = {"name": d.name.upper(), "version": "1", "cflags": "", "cxxflags": "", "sources": "", "libs": ""}
+    cfg = {"name": d.name.upper(), "version": "1", "cflags": "", "cxxflags": "", "sources": "", "libs": "", "kind": "module"}
+    if d.is_file():                             # a single .c: a probe
+        cfg.update(name=d.stem.upper(), kind="probe")
+        return cfg
     p = d / "module.cfg"
     if p.exists():
         for ln in p.read_text().splitlines():
@@ -130,9 +138,9 @@ def symbols(syms):
             if re.match(r"^[0-9a-f]{8} ", ln) and len(ln.split()) >= 3}
 
 
-def link(objs, out, base, libs=()):
+def link(objs, out, base, libs=(), probe=False):
     ld = out / f"module_{base:08x}.ld"
-    ld.write_text((MODS / "module.ld").read_text().replace("@BASE@", f"{base:#010x}"))
+    ld.write_text((PROBES / "probe.ld" if probe else MODS / "module.ld").read_text().replace("@BASE@", f"{base:#010x}"))
     elf = out / f"module_{base:08x}.elf"
     tc_root = build.toolchain()
     paths = []
@@ -171,22 +179,25 @@ def link(objs, out, base, libs=()):
 def build_module(d):
     d = Path(d).resolve()
     cfg = read_cfg(d)
-    out = OUTDIR / d.name
+    probe = cfg["kind"] == "probe"
+    outdir = SRC / "build" / "probes" if probe else OUTDIR
+    out = outdir / (d.stem if d.is_file() else d.name)
     out.mkdir(parents=True, exist_ok=True)
-    srcs = (sorted([*d.glob("*.c"), *d.glob("*.cc")]) + [(d / s).resolve() for s in cfg["sources"].split()]
-            + [MODS / "lib" / "hb_lib.c"])
-    flags = [*CFLAGS, f"-I{d.relative_to(SRC)}", *cfg["cflags"].split()]
+    srcs = [d] if d.is_file() else sorted([*d.glob("*.c"), *d.glob("*.cc")])
+    base_dir = d.parent if d.is_file() else d
+    srcs = srcs + [(base_dir / s).resolve() for s in cfg["sources"].split()] + [MODS / "lib" / "hb_lib.c"]
+    flags = [*CFLAGS, f"-I{base_dir.relative_to(SRC)}", "-Iprobes", *cfg["cflags"].split()]
     if cfg["libs"].split():                     # libc / libm: their headers too
         inc = "/opt/jieli/pi32v2/include" if build.use_docker() else str(build.toolchain() / "pi32v2/include")
         flags += ["-isystem", inc]
     # (object names from the path below the module, so resid/sid.cc and sid.c do not collide)
-    objs = [out / ("_".join(s.relative_to(d).with_suffix("").parts if s.is_relative_to(d) else (s.stem,)) + ".o")
+    objs = [out / ("_".join(s.relative_to(base_dir).with_suffix("").parts if s.is_relative_to(base_dir) else (s.stem,)) + ".o")
             for s in srcs]
     build.tc_all(*[("cxx", *flags, *cfg["cxxflags"].split(), "-c", s, "-o", o) if s.suffix == ".cc" else
                    ("cc", *flags, "-c", s, "-o", o) for s, o in zip(srcs, objs)])
     libs = cfg["libs"].split()
-    elf_a, img_a, sym, syms, desc, (code, data, rt) = link(objs, out, BASE_A, libs)
-    _, img_b, _, _, desc_b, _ = link(objs, out, BASE_B, libs)
+    elf_a, img_a, sym, syms, desc, (code, data, rt) = link(objs, out, BASE_A, libs, probe)
+    _, img_b, _, _, desc_b, _ = link(objs, out, BASE_B, libs, probe)
     if any(n in sym for n in ("__init_array_start", "__ctors_start")) or ".init_array" in build.tc(
             "common/bin/objdump", "-h", elf_a):
         raise SystemExit("hbmod: static constructors (.init_array): a module has nobody to run them; "
@@ -195,13 +206,16 @@ def build_module(d):
     errors = []
     if desc != 0 or desc_b != 0:
         errors.append(f"the descriptor is at {desc:#x}, not at the start of the image")
-    if sym["_hb_data_start"] != MOD_RAM:
+    ram, ram_size = (PROBE_RAM, PROBE_RAM_SIZE) if probe else (MOD_RAM, MOD_RAM_SIZE)
+    if sym["_hb_data_start"] != ram:
         errors.append(".data does not start the module RAM")
     if sym["_hb_rt_start"] != MOD_RT:
         errors.append(".ram_text does not start the module RAM text")
     ram_end = sym["_hb_bss_end"]
-    if ram_end - MOD_RAM > MOD_RAM_SIZE:
-        errors.append(f"RAM {ram_end - MOD_RAM} B > {MOD_RAM_SIZE}")
+    if ram_end - ram > ram_size:
+        errors.append(f"RAM {ram_end - ram} B > {ram_size}")
+    if probe and image_offset(len(relocs)) + len(img_a) > PROBE_FILE:
+        errors.append(f"a probe's file may be {PROBE_FILE} B")
     if rt > MOD_RT_SIZE:
         errors.append(f".ram_text {rt} B > {MOD_RT_SIZE}")
     dis = build.tc("common/bin/objdump", "-d", elf_a)
@@ -217,13 +231,13 @@ def build_module(d):
     if errors:
         raise SystemExit("hbmod: checks failed")
     # (RAM addresses are fixed, HB_MOD_RAM: only flash addresses are relocated, in .data's image too)
-    h = {"magic": HB_MAGIC, "abi": HB_ABI, "flags": 0, "name": cfg["name"], "version": int(cfg["version"]),
-         "code_size": code, "data_size": data, "bss_size": ram_end - MOD_RAM - data,
+    h = {"magic": HB_MAGIC, "abi": HB_ABI, "flags": HB_F_PROBE if probe else 0, "name": cfg["name"],
+         "version": int(cfg["version"]), "code_size": code, "data_size": data, "bss_size": ram_end - ram - data,
          "rt_size": rt, "worst_cycles": 0, "desc": desc, "base": BASE_A, "n_relocs": len(relocs), "reserved": 0, "crc": 0}
     blob = pack(h, relocs, img_a)
-    path = OUTDIR / f"{d.name}.hrbr"
+    path = outdir / f"{out.name}.hrbr"
     path.write_bytes(blob)
-    print(f"module {cfg['name']:<10} {path.relative_to(SRC)}: code {code} B, data {data} B, bss {h['bss_size']} B, "
+    print(f"{cfg['kind']} {cfg['name']:<10} {path.relative_to(SRC)}: code {code} B, data {data} B, bss {h['bss_size']} B, "
           f"ram_text {rt} B, {len(relocs)} relocs, crc {h['crc']:08x}")
     return path
 

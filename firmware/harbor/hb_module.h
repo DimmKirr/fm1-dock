@@ -170,4 +170,46 @@ typedef struct {
     uint32_t crc;                               /* the module's hb_file_t.crc */
 } hb_slot_t;
 
+/* Probes (tools/probe.py): a program that runs once, from RAM, to measure or test something on
+ * the FM-1 and in fm1-emu alike; never written to flash. Built as a module (hb_file_t.flags
+ * HB_F_PROBE, probes/probe.ld), sent with BEGIN / DATA, run with RUN: the host relocates it where
+ * it was received (code from HB_MOD_RAM up), puts its .data / .bss at HB_PROBE_RAM, calls run()
+ * in the main loop (the module stopped, interrupts on) and replies with what it wrote to out.
+ * The result is in NOINIT: a probe that crashes or hangs into the watchdog leaves its output so
+ * far and the crash's PC, for RESULT after the reboot. Unlike a module, a probe may do anything
+ * (wait, turn interrupts off, read hardware registers); the flash is the host's alone. */
+#define HB_F_PROBE      0x100u                  /* hb_file_t.flags */
+#define HB_PROBE_MAGIC  0x424F5250u             /* "PROB" */
+#define HB_PROBE_FILE   0x30000u                /* a probe's file: 192 KiB */
+#define HB_PROBE_RAM    (HB_MOD_RAM + HB_PROBE_FILE)   /* its .data + .bss, 80 KiB */
+#define HB_PROBE_RAM_SIZE (HB_MOD_RAM_SIZE - HB_PROBE_FILE)
+#define HB_PROBE_OUT    8192u                   /* its output */
+#define HB_PROBE_ARG    512u                    /* its argument (RUN's payload) */
+typedef struct hb_probe_ctx {
+    const hb_host_t *host;                      /* the module service table (ticks, log, ...) */
+    const uint8_t *arg;                         /* RUN's argument */
+    uint32_t arg_n;
+    uint8_t *out;                               /* HB_PROBE_OUT bytes, in NOINIT */
+    volatile uint32_t out_n;                    /* what of out is the result (kept as it grows: a crash keeps it) */
+    void (*wdt_feed)(void);                     /* the watchdog bites after 8 s */
+    uint32_t ticks_per_us;                      /* host->ticks(): TIMER4, 24 */
+} hb_probe_ctx_t;
+typedef struct hb_probe {
+    uint32_t magic;                             /* HB_PROBE_MAGIC */
+    const char *name;
+    int32_t (*run)(hb_probe_ctx_t *c);          /* its return value goes to the computer */
+} hb_probe_t;
+#define HB_PROBE const hb_probe_t hb_module __attribute__((section(".hb_desc"), used))
+
+/* The boot slot (tools/hbboot.py): a whole firmware, built from its source to run at flash
+ * HB_BOOT_IMG, that harbor starts at power-on in place of itself (HOME held: harbor). It has
+ * the FM-1 to itself: both cores, all the RAM, its own USB, its own flash areas above 0x97000.
+ * Its file is an hb_file_t (flags HB_F_BOOT, no relocations, base = FM1 XIP of HB_BOOT_IMG,
+ * desc = 0: the entry is the image's first byte, as the SPL's) and the image, its app.bin. The
+ * host writes it encrypted with the chip key, as an update would, below the plain window. */
+#define HB_F_BOOT       0x200u                  /* hb_file_t.flags */
+#define HB_BOOT_LO      0x14000u                /* flash: the first sector (the header at its end) */
+#define HB_BOOT_IMG     0x15000u                /* the image */
+#define HB_BOOT_HI      0x93000u                /* the end (the plain window: Felucca's data from 0x97000) */
+
 #endif

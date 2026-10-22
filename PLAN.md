@@ -117,7 +117,8 @@ nothing on hardware):
     ABORT, DELETE, SELECT, SAFE (the sine), LOG. Over USB each frame is answered; over the DIN jack
     (and a `.syx`) nothing comes back, the sender paces itself.
   - Flash: the deployed table at 0x93000 / 0x94000 (two copies, sequence number, header written last),
-    modules at 0x95000-0xE0000 (300 KiB, 4 KiB aligned, in Dinghy's plain window, first fit). An update
+    the host's settings at 0x95000, modules at 0x96000-0xE0000 (296 KiB, 4 KiB aligned, in Dinghy's
+    plain window, first fit). An update
     writes only below 0x93000, so deployed modules survive host updates (refused if the ABI changes).
   - The file is received whole into the module RAM (the running module stopped) and checked (CRC,
     header, relocations) before any erase; relocated to where it goes, written, read back through XIP
@@ -149,6 +150,35 @@ nothing on hardware):
   measurements: CS-1's own firmware in the emulator senses 8 / 19 / 50 / 80 / 101 for 1 / 20 / 64 /
   100 / 127. Not on hardware.
 - Identity: CS-1's own package is also `FM-1_950`: harbor needs another before any release.
+- **Probes** (`tools/probe.py`, `probes/`, `tests/probe_test.py`): a program sent as a deploy is
+  (BEGIN / DATA) but run once from RAM (RUN) instead of written (COMMIT refuses it, and the boot
+  refuses one in a slot). Its code runs where it was received (HB_MOD_RAM up), its .data / .bss at
+  HB_PROBE_RAM; its output (typed records, `probes/probe.h`) is in NOINIT with the crash PC, so
+  RESULT gets it after a crash or the watchdog, which do not count towards the boot guard.
+  `probe.py run X.c --on emu,fm1` builds, runs on both, prints JSON and the time ratios;
+  `probe.py exec "r3 = r1 * r2" --regs r1=5,r2=7` runs instruction lines in a register wrapper
+  (`probes/exec.c`). Probes so far: HELLO (the path itself), TIMING (instructions, RAM, flash,
+  calls), EXEC, CRASH (FM-1 only). Tested in fm1-emu; on an FM-1 they are the way to do P5 and to
+  fit fm1-emu's timing (it charges one instruction per 240 MHz cycle) and its instructions.
+- **Boot slot** (`tools/hbboot.py`, `tests/boot_test.py`): a whole firmware, rebuilt from its source to
+  run at flash 0x15000 (`hbboot.py relink`: its app.ld, its PC guard, its build's start address),
+  deployed as a module is (streamed: each 4 KiB sector encrypted with the chip key and written as
+  it arrives; the table entry last). At power-on harbor hands the FM-1 over in fm1_cstart, after its
+  50 ms key scan and before its guard, screen, USB and audio (platform.c `APP_BOOT_HOOK`): the
+  firmware has both cores, all RAM, its own USB and flash areas. HOME (or OCT-/OCT+) held: harbor
+  stays; a firmware that fails its CRC (read back through the SFC) or was started twice without a
+  power-on between (a counter at 0x01C7FD40, app.ld `.hbgo`): harbor stays. Picking it in harbor's
+  list reboots into it. Modules and a boot firmware exclude each other (its data is where they go).
+  - Felucca 1.6.1 (511 KB): relinked, deployed over DIN in fm1-emu (218 s), its own UI and sound at
+    power-on; HOME gives harbor's list; a flipped bit, a module deploy and DELETE behave (6 cases).
+  - For it: the host's settings moved off 0xFC000 (Felucca's) to 0x95000; the fonts packed to 1 bit
+    per pixel (`tools/font_1bpp.py`: they are bitmap fonts) to bring the host from 75 to 51 KB, so the
+    slot can start at 0x14000; Felucca leaves 4.6 KiB of it free.
+  - fm1-emu (branch `fm1-sfc-window`, on `fm1-key-pressure`): the SFC's decryption below the plain
+    window the firmware sets, the window rebuilt from a `--flash` file, `FM1_BENCH_KEYS=@FILE`.
+  - Not yet: SLOOP and the others (each one's flash map and NOINIT checked: Felucca's NOINIT ends at
+    0x01C7FCD0), a resend of the deploy over USB (nothing tested over USB), a firmware's own updater
+    (it would write over harbor: an install, as from the Hub).
 - [ ] P5 hardware: not started.
 - **Interface v2** (ABI 2): a module may take the whole screen (HB_F_SCREEN) and the whole panel
   (HB_F_PANEL: every key and button as events, OCT and HOME too; HOME held 1.5 s alone opens the
@@ -166,6 +196,20 @@ nothing on hardware):
 - **fm1-emu**: test with its current master. The binaries in `~/work/fm1-emu/target/release` were
   from 2026-10-12 and cannot run a pair move (`r5_r4 = r11_r10 #`) that master can;
   `tests/emu_test.py` checks every instruction with the emulator's `--check-decode` first.
+
+## Next modules (survey 2026-10-21)
+
+Popularity from the Firmware Hub's catalog (`installs` from its own page, and GitHub stars). A port
+needs the source: a shim of the firmware's platform API on `modules/lib/hb_fm1.h`, as CS-1's.
+- **OberVave** (545 installs, Dinghy, 1 core, 120 KiB): CS-1's pattern again; Shine On after it.
+- **FoMni** (X0X platform, 1 core, 156 KiB): one shim of that small API also ports FiMba, HYP-1,
+  FuMi, MIN-1, DUB-1 and Fart Machine.
+- **AMB-1** (679 installs, fm1-base, MPL-2.0): about 281 KiB of buffers against 272 KiB of module
+  RAM (an int16 reverb, a shorter tape, or more RAM); then Mutable Dreams on the same shim.
+- **FM-106** (Dinghy, a single-core build): measure its load on one core first.
+- Not as modules: the Felucca-family whole firmwares (SLOOP, Felucca, JIANT, GHOULBOX, Skiff,
+  ChoralRoot, Melodee, Tonitor: 430-570 KiB, both cores, their own USB audio and flash layouts);
+  closed or unlicensed ones (April OS, SLOOP ALG, the stock firmware).
 
 ## Phases
 

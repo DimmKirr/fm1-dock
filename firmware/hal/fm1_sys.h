@@ -156,6 +156,9 @@ FM1_INLINE void fm1_updata_parm_clear(void)
         FM1_UPDATA_PARM[i] = 0;
 }
 
+/* r0 as the SPL handed it over (the boot-parameter pointer): crt0 keeps it in the debug area */
+FM1_INLINE uint32_t fm1_boot_param(void) { return *(volatile uint32_t *)0x01C07F28u; }
+
 FM1_INLINE void fm1_mailbox_clear(void)   /* before fm1_guard_enable (it write-protects the top) */
 {
     uint32_t *s;

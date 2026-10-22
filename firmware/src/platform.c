@@ -75,7 +75,9 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #include "usb.c"
 
 /* ---- flash: read anywhere; erase / program only the update's staging area and the settings sector */
+#ifndef SETTINGS_AT
 #define SETTINGS_AT 0x000FC000u                 /* one 4 KiB sector of Felucca's globals area */
+#endif
 #ifndef APP_FL_LO                               /* the app's own flash area, if it has one */
 #define APP_FL_LO 0u
 #define APP_FL_HI 0u
@@ -355,6 +357,11 @@ void fm1_cstart(void)
     for (d = _pool_start; d < _pool_end; d++) *d = 0;
     for (s = _data_load, d = _data_start; d < _data_end; s++, d++) *d = *s;
     for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++) *d = *s;
+#ifdef APP_BOOT_HOOK
+    if (boot_mode == BOOT_NORMAL)
+        APP_BOOT_HOOK(p3);                      /* the app may hand the FM-1 to another firmware here, before
+                                                 * the guard, the screen, USB and audio (harbor's boot slot) */
+#endif
     fm1_mailbox_clear();
     fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
     fm1_boot.p3_rst = (uint8_t)p3;

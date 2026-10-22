@@ -20,15 +20,26 @@
  *   keys       the bottom two rows' force is sensed (Velo's sense.c, by way of CS-1, in the key
  *              scan): they play with the velocity they land at, report their pressure while held.
  *   overload   a module that renders slower than real time for 64 blocks in a row (0.4 s or more)
- *              is stopped (the sine plays): the main loop, so USB and the updater, keep running. */
+ *              is stopped (the sine plays): the main loop, so USB and the updater, keep running.
+ *   probes     a program sent as a deploy is, but run once from RAM (RUN) to measure or test, its
+ *              result kept through a crash (RESULT): tools/probe.py. Nothing goes into flash.
+ *   boot slot  a whole firmware (Felucca, ...; tools/hbboot.py) deployed above the host: at
+ *              power-on harbor hands the FM-1 over to it before its own screen, USB and audio
+ *              start (HOME held: harbor stays; two starts without a power cycle between: harbor
+ *              stays). It is written as an update writes, encrypted with the chip key. */
 #define APP_NAME "HARBOR"
 #define CV_MAX (240u * 96u)
 #define APP_FAULT_HOOK hb_fault
 #define APP_EARLY_INIT hb_early_init
-#define APP_FL_LO 0x93000u                      /* what the host may erase / program besides its settings: the */
-#define APP_FL_HI 0xFC000u                      /* deployed modules, their table, the banks; never the host (below) */
+#define APP_FL_LO 0x14000u                      /* what the host may erase / program besides its settings: the boot */
+#define APP_FL_HI 0xFC000u                      /* slot, the deployed modules, their table, the banks; never the host
+                                                 * (below; tools/build.py checks that it ends there) */
+#define SETTINGS_AT 0x95000u                    /* the host's own sector (0xFC000 is a boot firmware's: Felucca's) */
+#define APP_BOOT_HOOK hb_boot_hook
 #define APP_SYSEX hb_sysex
 #include <stdint.h>
+static void hb_boot_hook(uint32_t p3);
+static void hb_boot_now(void);
 static void hb_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven);
 static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #define FM1_INPUT_ANALOG(col, rowbit, v, driven) hb_analog(col, rowbit, v, driven)
@@ -48,7 +59,7 @@ static int hb_analog_drive(uint32_t col, uint32_t rowbit);
 #define HB_AREA_HI  0x93000u                    /* (the end of what an update writes) */
 #define DT_A        0x93000u                    /* the deployed table, two copies (deploys, below) */
 #define DT_B        0x94000u
-#define DP_LO       0x95000u                    /* the deployed modules, in the plain window */
+#define DP_LO       0x96000u                    /* the deployed modules, in the plain window */
 #define DP_HI       0xE0000u
 #define BANK_LO     0xEA000u                    /* the modules' banks, 8 KiB each (Felucca's USR area) */
 #define BANK_HI     0xFC000u
@@ -69,6 +80,17 @@ typedef struct {
 } hb_nv_t;
 hb_nv_t hb_nv __attribute__((section(".noinit")));
 #define CRASH_MAGIC 0x48535243u                 /* "CRSH" */
+/* the last probe's run (probes, below): it outlives the probe's crash or hang */
+#define PR_MAGIC 0x52504248u                    /* "HBPR" */
+enum { PR_NONE, PR_RUNNING, PR_DONE, PR_CRASHED, PR_HUNG };
+typedef struct {
+    uint32_t magic, id, state, ticks, pc;       /* id: the computer's for this run; ticks: run()'s, TIMER4 */
+    int32_t rc;
+    char name[24];
+    hb_probe_ctx_t c;                           /* (c.out_n kept here: a crash leaves it) */
+    uint8_t out[HB_PROBE_OUT];
+} hb_pr_t;
+hb_pr_t hb_probe __attribute__((section(".noinit")));
 
 static void nv_init(void)
 {
@@ -120,7 +142,7 @@ static uint32_t crc_upd(uint32_t c, const uint8_t *p, uint32_t n)
 extern const hb_module_t hb_builtin_sine;       /* modules/sine/sine.c, linked into the host */
 enum { M_OK, M_BAD_CRC, M_BAD_HEAD, M_TOO_BIG, M_STRUCK, M_INIT_FAILED, M_SLOW };
 static const char *const M_STATE[] = {"", "BAD CRC", "BAD HEADER", "TOO BIG", "CRASHED", "INIT FAILED", "TOO SLOW"};
-enum { K_BUILTIN, K_IMAGE, K_DEPLOYED };
+enum { K_BUILTIN, K_IMAGE, K_DEPLOYED, K_BOOT };
 typedef struct {
     const hb_file_t *file;                      /* 0: built in */
     const hb_module_t *desc;
@@ -146,7 +168,7 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
     uint32_t io, img, c, head = (uint32_t)((const uint8_t *)&f->crc - (const uint8_t *)f);
     if (sl->at < FM1_XIP(lo) || sl->at >= FM1_XIP(hi) || sl->size < sizeof *f || sl->size > FM1_XIP(hi) - sl->at)
         return M_BAD_HEAD;
-    if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->crc != sl->crc || f->n_relocs > 65536u)
+    if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->crc != sl->crc || f->n_relocs > 65536u || (f->flags & (HB_F_PROBE | HB_F_BOOT)))
         return M_BAD_HEAD;
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     img = f->code_size + f->data_size + f->rt_size;
@@ -195,6 +217,59 @@ static void add_slot(const hb_slot_t *sl, uint32_t kind, uint32_t lo, uint32_t h
 static void dt_load(void);
 static struct { uint32_t magic, seq, n, crc; hb_slot_t s[HB_SLOTS]; } dt;   /* the deployed table in force */
 
+/* ---- the boot slot (hb_module.h): its entry in the deployed table, checked as a module is */
+#define BOOT_MAGIC 0x544F4F42u                  /* "BOOT" */
+#define BOOT_AT    (HB_BOOT_IMG - 256u)         /* its hb_file_t */
+static const hb_slot_t *dt_boot(void)
+{
+    uint32_t i;
+    for (i = 0; i < dt.n; i++)
+        if (dt.s[i].magic == BOOT_MAGIC)
+            return &dt.s[i];
+    return 0;
+}
+static uint32_t crc_fast(uint32_t c, const uint8_t *p, uint32_t n)   /* crc_upd's, by a table: 500 KB at boot */
+{
+    static uint32_t t[256];
+    uint32_t i, k, v;
+    if (!t[1])
+        for (i = 0; i < 256u; i++) {
+            for (v = i, k = 0; k < 8u; k++) v = v & 1u ? (v >> 1) ^ 0xEDB88320u : v >> 1;
+            t[i] = v;
+        }
+    c = ~c;
+    while (n--) c = t[(c ^ *p++) & 0xFFu] ^ (c >> 8);
+    return ~c;
+}
+static uint32_t check_boot(const hb_slot_t *sl)
+{
+    const hb_file_t *f = (const hb_file_t *)sl->at;
+    if (sl->at != FM1_XIP(BOOT_AT) || sl->size < 256u + 32u || sl->size > HB_BOOT_HI - BOOT_AT)
+        return M_BAD_HEAD;
+    if (f->magic != HB_MAGIC || f->abi != HB_ABI || !(f->flags & HB_F_BOOT) || f->n_relocs || f->desc ||
+        f->base != FM1_XIP(HB_BOOT_IMG) || f->code_size != sl->size - 256u || f->crc != sl->crc)
+        return M_BAD_HEAD;
+    if (crc_fast(crc_fast(0, (const uint8_t *)f, 76u), (const uint8_t *)f->base, f->code_size) != f->crc)
+        return M_BAD_CRC;
+    return M_OK;
+}
+static void add_boot(const hb_slot_t *sl)
+{
+    hb_entry_t *e = &mods[n_mods];
+    const hb_file_t *f = (const hb_file_t *)sl->at;
+    if (n_mods > HB_SLOTS)
+        return;
+    n_mods++;
+    e->state = (uint8_t)check_boot(sl);
+    e->kind = K_BOOT;
+    e->file = f;
+    e->desc = 0;
+    str_cpy(e->name, e->state != M_BAD_HEAD ? f->name : "BOOT ?", sizeof e->name);
+    e->key = name_key(e->name);
+    hb_log_u32(e->state == M_OK ? "boot slot ok" : "boot slot refused", e->state);
+    hb_log(e->name);
+}
+
 static void scan_slots(void)
 {
     const hb_slot_t *t = (const hb_slot_t *)FM1_XIP(HB_TABLE_AT);
@@ -206,11 +281,14 @@ static void scan_slots(void)
     str_cpy(mods[0].name, hb_builtin_sine.name, sizeof mods[0].name);
     mods[0].key = name_key("(built in)");       /* its own settings, apart from a slot of the same name */
     n_mods = 1;
-    for (i = 0; i < HB_SLOTS && t[i].magic == HB_SLOT_MAGIC; i++)
-        add_slot(&t[i], K_IMAGE, HB_AREA_LO, HB_AREA_HI);
     dt_load();
+    for (i = 0; i < HB_SLOTS && !dt_boot() && t[i].magic == HB_SLOT_MAGIC; i++)
+        add_slot(&t[i], K_IMAGE, HB_AREA_LO, HB_AREA_HI);   /* (a boot firmware is where the image's were) */
     for (i = 0; i < dt.n; i++)
-        add_slot(&dt.s[i], K_DEPLOYED, DP_LO, DP_HI);
+        if (dt.s[i].magic == BOOT_MAGIC)
+            add_boot(&dt.s[i]);
+        else
+            add_slot(&dt.s[i], K_DEPLOYED, DP_LO, DP_HI);
 }
 
 /* ---- settings: the host's record and one per module, in one sector; flushed when nothing plays */
@@ -484,8 +562,8 @@ static int start_module(uint32_t i)
     hb_entry_t *e = &mods[i];
     const hb_file_t *f = e->file;
     stop_module();
-    if (e->state != M_OK)
-        return -1;
+    if (e->state != M_OK || e->kind == K_BOOT)
+        return -1;                              /* (a boot firmware is started by a reboot: hb_boot_hook) */
     if (f) {
         const uint8_t *img = (const uint8_t *)f->base;
         memcpy((void *)HB_MOD_RAM, img + f->code_size, f->data_size);
@@ -521,6 +599,12 @@ static void hb_fault(const fm1_crash_t *c)
     hb_nv.crash.module = hb_nv.active;
     hb_nv.crash.ms = fm1_ms;
     hb_log_u32("FAULT pc", c->pc);
+    if (hb_probe.magic == PR_MAGIC && hb_probe.state == PR_RUNNING) {
+        hb_probe.state = PR_CRASHED;            /* a probe's: the host is fine */
+        hb_probe.pc = c->pc;
+        hb_log("in the probe");
+        bootguard_clear(&bootguard);
+    }
     if (hb_nv.active && hb_nv.active <= HB_SLOTS + 1u) {
         if (hb_nv.strikes[hb_nv.active - 1u] < 255u) hb_nv.strikes[hb_nv.active - 1u]++;
         hb_log_u32("in module", hb_nv.active - 1u);
@@ -654,7 +738,7 @@ static uint32_t find_key(uint32_t k)
  * pack7 as ota.c's). Over USB each one is answered (cmd | 0x40, the same seq, a status first);
  * over DIN nothing comes back, the sender paces itself (tools/hbdeploy.py). */
 enum { D_HELLO = 0x01, D_LIST = 0x02, D_BEGIN = 0x10, D_DATA = 0x11, D_COMMIT = 0x12, D_ABORT = 0x13,
-       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22 };
+       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_RUN = 0x30, D_RESULT = 0x31 };
 enum { D_OK, D_BAD_CRC, D_BAD_HEAD, D_TOO_BIG, D_NO_SPACE, D_FLASH, D_VERIFY, D_MISSING, D_IDLE, D_NOT_FOUND,
        D_BAD_MSG };
 static const char *const D_TXT[] = {"DONE", "BAD CRC", "BAD HEADER", "TOO BIG", "NO SPACE", "FLASH ERROR",
@@ -665,6 +749,7 @@ static const char *const D_TXT[] = {"DONE", "BAD CRC", "BAD HEADER", "TOO BIG", 
 static uint32_t dt_at;                          /* the table's copy in force: DT_A / DT_B, 0: none */
 static struct {
     uint32_t on, size, crc, got, t_last, t_draw, prev_key;
+    uint32_t boot, next, crc_run, key, sec, t_reboot;   /* a boot firmware: written as it comes (below) */
     char name[24];
     uint8_t have[RX_MAX / 256u / 8u];           /* the 256-byte chunks received */
 } rx;
@@ -779,8 +864,8 @@ static uint32_t d_commit(uint32_t *key)
     if (crc_upd(0, RX_BUF, rx.size) != rx.crc)
         return D_BAD_CRC;
     if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->n_relocs > 65536u || f->code_size > RX_MAX ||
-        f->data_size > RX_MAX || f->rt_size > RX_MAX)
-        return D_BAD_HEAD;
+        f->data_size > RX_MAX || f->rt_size > RX_MAX || (f->flags & HB_F_PROBE))
+        return D_BAD_HEAD;                      /* (a probe is run, never written: RUN) */
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     isz = f->code_size + f->data_size + f->rt_size;
     total = io + isz;
@@ -795,6 +880,8 @@ static uint32_t d_commit(uint32_t *key)
     for (i = 0; i < f->n_relocs; i++)
         if (rel[i] > isz - 4u)
             return D_BAD_HEAD;
+    if (dt_boot())
+        return D_NO_SPACE;                      /* (the boot firmware's own data is where modules would go) */
     *key = name_key(f->name);
     old = dt_find(*key);
     if (old == HB_SLOTS && dt.n >= HB_SLOTS)
@@ -868,6 +955,193 @@ static void rx_end(uint32_t status)
         while (fm1_ms - t0 < 1500u)
             fm1_wdt_feed();
     }
+}
+
+/* ---- a boot firmware's deploy: too big for RX_BUF, so each 4 KiB sector is written as it fills
+ * (the chunks in order; over USB each is answered after its sector is written, over DIN the
+ * sender pauses: tools/hbdeploy.py). Its table entry goes first, so a cut or a failed transfer
+ * leaves no boot firmware, never a broken one: harbor boots. Encrypted as the updater writes
+ * the app area: SFC, per 32 bytes, the chip key ^ (offset in the area / 4). */
+static int chip_key(uint32_t *key)              /* as the loader's ldr_chip_key: the isd_config blob */
+{
+    uint8_t e[32], blob[34];
+    uint32_t off, i, sum, k;
+    for (off = 32; off < 0x400u; off += 32u) {
+        if (st_read(off, e, 32))
+            return -1;
+        ota_jl_enc(e, 32);
+        if (ota_crc16(e + 2, 30, 0) != ota_rd16(e))
+            return -2;
+        if (memcmp(e + 16, "isd_config.ini", 15)) {
+            if (ota_rd16(e + 14))
+                return -3;
+            continue;
+        }
+        if (st_read(rd32(e + 4), blob, 34) || ota_crc16(blob, 32, 0) != ota_rd16(blob + 32))
+            return -4;
+        for (i = 0, sum = 0; i < 16u; i++)
+            sum += blob[i];
+        sum &= 0xFFu;
+        sum = sum >= 0xE0u ? 0xAAu : sum <= 0x10u ? 0x55u : sum;
+        for (i = 0, k = 0; i < 16u; i++)
+            if ((uint32_t)(blob[16 + i] ^ blob[15 - i]) < sum)
+                k |= 1u << i;
+        *key = k;
+        return 0;
+    }
+    return -3;
+}
+static void sfc_enc(uint8_t *p, uint32_t n, uint32_t area_off, uint32_t key)
+{
+    uint32_t i, j, k;
+    for (i = 0; i < n; i += 32u)
+        for (k = key ^ ((area_off + i) >> 2), j = 0; j < 32u && i + j < n; j++) {
+            p[i + j] ^= (uint8_t)k;
+            k = ((k << 1) ^ (k & 0x8000u ? 0x1021u : 0u)) & 0xFFFFu;
+        }
+}
+static uint32_t boot_begin(const uint8_t *h)    /* chunk 0 is a boot firmware's header: ready to write */
+{
+    static hb_slot_t e[HB_SLOTS];
+    const hb_file_t *f = (const hb_file_t *)h;
+    uint32_t i, n;
+    if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->n_relocs || f->desc || f->base != FM1_XIP(HB_BOOT_IMG) ||
+        f->code_size + 256u != rx.size || rx.size > HB_BOOT_HI - BOOT_AT)
+        return D_BAD_HEAD;
+    for (i = n = 0; i < dt.n; i++)
+        if (dt.s[i].magic != BOOT_MAGIC)
+            return D_NO_SPACE;                  /* deployed modules: their flash is the boot firmware's data */
+    if (chip_key(&rx.key))
+        return D_FLASH;
+    if (dt.n && dt_write(e, 0) != D_OK)        /* the old boot firmware out of the table first */
+        return D_FLASH;
+    rx.boot = 1;
+    rx.next = rx.crc_run = 0;
+    rx.sec = HB_BOOT_LO;
+    memset(RX_BUF, 0xFF, 0x1000u);
+    hb_log_u32("deploy: a boot firmware, key", rx.key);
+    return D_OK;
+}
+static uint32_t boot_sector(void)               /* RX_BUF, the sector at rx.sec, encrypted and written */
+{
+    uint32_t took;
+    sfc_enc(RX_BUF, 0x1000u, rx.sec - 0x4000u, rx.key);
+    if (fl_erase4k(rx.sec, &took) || fl_write(rx.sec, RX_BUF, 0x1000u))
+        return D_FLASH;
+    fm1_wdt_feed();
+    rx.sec += 0x1000u;
+    memset(RX_BUF, 0xFF, 0x1000u);
+    return D_OK;
+}
+static uint32_t boot_data(uint32_t off, const uint8_t *p, uint32_t n)
+{
+    uint32_t at = BOOT_AT + off;
+    if (off < rx.next)
+        return D_OK;                            /* (sent again: it is in) */
+    if (off != rx.next || at < rx.sec || at + n > rx.sec + 0x1000u)
+        return D_BAD_MSG;
+    memcpy(RX_BUF + (at - rx.sec), p, n);
+    rx.crc_run = crc_fast(rx.crc_run, p, n);
+    rx.next += n;
+    rx.got++;
+    if (at + n == rx.sec + 0x1000u || rx.next == rx.size)
+        return boot_sector();
+    return D_OK;
+}
+static uint32_t boot_commit(uint32_t *key)
+{
+    static hb_slot_t e[HB_SLOTS];
+    hb_slot_t sl;
+    uint32_t n = dt.n;
+    if (rx.next != rx.size)
+        return D_MISSING;
+    if (rx.crc_run != rx.crc)
+        return D_BAD_CRC;
+    sl.magic = BOOT_MAGIC;
+    sl.at = FM1_XIP(BOOT_AT);
+    sl.size = rx.size;
+    sl.crc = ((const hb_file_t *)sl.at)->crc;
+    if (crc_fast(0, (const uint8_t *)sl.at, rx.size) != rx.crc || check_boot(&sl) != M_OK)
+        return D_VERIFY;                        /* read back through the SFC: decrypted as written */
+    memcpy(e, dt.s, 16u * n);
+    e[n++] = sl;
+    *key = name_key(((const hb_file_t *)sl.at)->name);
+    hb_log_u32("deploy: boot firmware at", sl.at);
+    return dt_write(e, n);
+}
+
+/* ---- probes (hb_module.h, tools/probe.py): received as a deploy is, then RUN instead of COMMIT:
+ * relocated where it lies in RX_BUF, its .data / .bss at HB_PROBE_RAM, run once in the main loop.
+ * Nothing is written to flash. The result (NOINIT) outlives a crash or the watchdog: RESULT. */
+static void h_wdt_feed(void) { fm1_wdt_feed(); }
+
+static uint32_t pr_run(uint32_t id, const uint8_t *arg, uint32_t argn)
+{
+    static uint8_t a[HB_PROBE_ARG];
+    hb_file_t *f = (hb_file_t *)RX_BUF;
+    const uint32_t *rel = (const uint32_t *)(RX_BUF + sizeof *f);
+    const hb_probe_t *p;
+    uint8_t *img;
+    uint32_t io, isz, i, d, t0;
+    if (rx.got != (rx.size + 255u) / 256u)
+        return D_MISSING;
+    if (crc_upd(0, RX_BUF, rx.size) != rx.crc)
+        return D_BAD_CRC;
+    if (f->magic != HB_MAGIC || f->abi != HB_ABI || !(f->flags & HB_F_PROBE) || f->n_relocs > 65536u ||
+        f->code_size > HB_PROBE_FILE || f->data_size > HB_PROBE_FILE || f->rt_size > HB_PROBE_FILE || argn > HB_PROBE_ARG)
+        return D_BAD_HEAD;
+    io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
+    isz = f->code_size + f->data_size + f->rt_size;
+    if (io + isz > rx.size || isz < 4u || f->desc + sizeof(hb_probe_t) > f->code_size || (f->desc & 3u))
+        return D_BAD_HEAD;
+    if (io + isz > HB_PROBE_FILE || f->data_size + f->bss_size > HB_PROBE_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
+        return D_TOO_BIG;
+    img = RX_BUF + io;
+    if (crc_upd(crc_upd(crc_upd(0, RX_BUF, (uint32_t)((uint8_t *)&f->crc - RX_BUF)), (const uint8_t *)rel,
+                        4u * f->n_relocs), img, isz) != f->crc)
+        return D_BAD_CRC;
+    for (i = 0; i < f->n_relocs; i++)
+        if (rel[i] > isz - 4u)
+            return D_BAD_HEAD;
+    memcpy(a, arg, argn);
+    d = (uint32_t)img - f->base;                /* to run where it lies */
+    for (i = 0; i < f->n_relocs; i++)
+        wr32(img + rel[i], rd32(img + rel[i]) + d);
+    memcpy((void *)HB_PROBE_RAM, img + f->code_size, f->data_size);
+    memset((uint8_t *)HB_PROBE_RAM + f->data_size, 0, f->bss_size);
+    memcpy((void *)HB_MOD_RT, img + f->code_size + f->data_size, f->rt_size);
+    fl_csync();                                 /* (the code was just written: no stale fetch) */
+    p = (const hb_probe_t *)(img + f->desc);
+    if (p->magic != HB_PROBE_MAGIC)
+        return D_BAD_HEAD;
+    memset(&hb_probe, 0, sizeof hb_probe - sizeof hb_probe.out);
+    hb_probe.magic = PR_MAGIC;
+    hb_probe.id = id;
+    str_cpy(hb_probe.name, f->name, sizeof hb_probe.name);
+    hb_probe.c.host = &HOST;
+    hb_probe.c.arg = a;
+    hb_probe.c.arg_n = argn;
+    hb_probe.c.out = hb_probe.out;
+    hb_probe.c.wdt_feed = h_wdt_feed;
+    hb_probe.c.ticks_per_us = FM1_TICKS_PER_US;
+    hb_log_u32("probe: run", id);
+    hb_log(hb_probe.name);
+    hb_probe.state = PR_RUNNING;
+    fm1_wdt_feed();
+    t0 = fm1_ticks();
+    hb_probe.rc = p->run(&hb_probe.c);
+    hb_probe.ticks = fm1_ticks() - t0;
+    hb_probe.state = PR_DONE;
+    hb_log_u32("probe: done", (uint32_t)hb_probe.rc);
+    return D_OK;
+}
+static uint32_t pr_out_n(void) { return hb_probe.c.out_n < HB_PROBE_OUT ? hb_probe.c.out_n : HB_PROBE_OUT; }
+static uint32_t pr_head(uint8_t *r)             /* the result's summary, r[1..27]: state, id, rc, ticks, out_n, pc */
+{
+    r[1] = (uint8_t)(hb_probe.magic == PR_MAGIC ? hb_probe.state : PR_NONE);
+    wr32(r + 4, hb_probe.id); wr32(r + 8, (uint32_t)hb_probe.rc); wr32(r + 12, hb_probe.ticks);
+    wr32(r + 16, pr_out_n()); wr32(r + 20, hb_probe.pc);
+    return 24;
 }
 
 static int hb_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: a USB frame, kept for the main loop */
@@ -949,7 +1223,7 @@ static uint32_t deploy_frame(void)
     case D_BEGIN: {
         uint32_t size = len >= 8u ? rd32(d_msg) : 0;
         if (len < 32u) { r[0] = D_BAD_MSG; break; }
-        if (size < sizeof(hb_file_t) + 4u || size > RX_MAX) { r[0] = D_TOO_BIG; break; }
+        if (size < sizeof(hb_file_t) + 4u || size > HB_BOOT_HI - BOOT_AT) { r[0] = D_TOO_BIG; break; }
         k = rx.on ? rx.prev_key : mods[cur].key;   /* (a BEGIN again: the same module to go back to) */
         stop_module();
         memset(&rx, 0, sizeof rx);
@@ -973,6 +1247,17 @@ static uint32_t deploy_frame(void)
         if (!rx.on) { r[0] = D_IDLE; break; }
         want = off < rx.size ? (rx.size - off < 256u ? rx.size - off : 256u) : 0;
         if ((off & 255u) || !want || len - 4u != want) { r[0] = D_BAD_MSG; break; }
+        if (off == 0 && !rx.boot && (((const hb_file_t *)(d_msg + 4))->flags & HB_F_BOOT)) {
+            r[0] = (uint8_t)boot_begin(d_msg + 4);
+            if (r[0]) { rx_end(r[0]); d_restart(rx.prev_key); ch = 1; break; }
+        }
+        if (rx.boot) {
+            r[0] = (uint8_t)boot_data(off, d_msg + 4, want);
+            rx.t_last = fm1_ms;
+            if (r[0] == D_FLASH) { rx_end(D_FLASH); d_restart(rx.prev_key); ch = 1; }
+            break;
+        }
+        if (rx.size > RX_MAX) { r[0] = D_TOO_BIG; break; }
         memcpy(RX_BUF + off, d_msg + 4, want);
         if (!(rx.have[off >> 11] >> (off >> 8 & 7u) & 1u)) {
             rx.have[off >> 11] |= (uint8_t)(1u << (off >> 8 & 7u));
@@ -982,13 +1267,20 @@ static uint32_t deploy_frame(void)
         break;
     }
     case D_COMMIT: {
-        uint32_t key = 0, st_ = rx.on ? d_commit(&key) : D_IDLE;
+        uint32_t key = 0, st_ = !rx.on ? D_IDLE : rx.boot ? boot_commit(&key) : d_commit(&key);
         r[0] = (uint8_t)st_;
         if (rx.on) {
             uint32_t back = st_ == D_OK ? key : rx.prev_key;
             if (st_ == D_OK) hb_log("deploy: done");
             rx_end(st_);
             d_restart(back);
+            if (st_ == D_OK && rx.boot) {      /* it starts: a reboot, after the answer */
+                st.sel_key = key;
+                stop_module();
+                store_flush();
+                rx_draw("STARTING", C_ACC);
+                rx.t_reboot = fm1_ms | 1u;
+            }
             wr32(r + 4, mods[cur].file ? (uint32_t)mods[cur].file : 0);
             r[1] = (uint8_t)cur;
             rn = 8;
@@ -1007,6 +1299,8 @@ static uint32_t deploy_frame(void)
     case D_DELETE:
         if (rx.on) { r[0] = D_IDLE; break; }
         k = dt_find(name_key(name));
+        if (k == HB_SLOTS && dt_boot() && name_key(((const hb_file_t *)dt_boot()->at)->name) == name_key(name))
+            k = (uint32_t)(dt_boot() - dt.s);   /* (its flash is left as it is; the table no longer has it) */
         if (k == HB_SLOTS) { r[0] = D_NOT_FOUND; break; }
         {
             static hb_slot_t e[HB_SLOTS];
@@ -1034,6 +1328,30 @@ static uint32_t deploy_frame(void)
             m++;
         }
         if (usb_src) d_reply(cmd, seq, b, 12u + m);
+        return 0;
+    }
+    case D_RUN: {                               /* [id u32][argument]: the probe received, run */
+        if (!rx.on) { r[0] = D_IDLE; break; }
+        r[0] = (uint8_t)pr_run(len >= 4u ? rd32(d_msg) : 0, d_msg + 4, len >= 4u ? len - 4u : 0);
+        rx.on = 0;
+        if (r[0] != D_OK) hb_log_u32("probe failed", r[0]);
+        rn = pr_head(r);
+        if (start_module(find_key(rx.prev_key))) start_module(0);
+        ch = 1;
+        break;
+    }
+    case D_RESULT: {                            /* [from u32]: the summary, then out from there (180 B) */
+        static uint8_t b[208];
+        uint32_t from = len >= 4u ? rd32(d_msg) : 0, m = 0, on = pr_out_n();
+        memset(b, 0, 28);
+        b[0] = D_OK;
+        pr_head(b);
+        wr32(b + 24, from);
+        while (from + m < on && m < 180u) {
+            b[28 + m] = hb_probe.out[from + m];
+            m++;
+        }
+        if (usb_src) d_reply(cmd, seq, b, 28u + m);
         return 0;
     }
     case D_SAFE:                                /* the sine, from the computer */
@@ -1068,6 +1386,8 @@ static uint32_t deploy_tick(void)               /* the main loop's: a frame, the
     uint32_t ch = 0;
     if (df_usb_n || df_din_n)
         ch = deploy_frame();
+    if (rx.t_reboot && fm1_ms - rx.t_reboot > 300u)
+        hb_boot_now();
     if (rx.on && fm1_ms - rx.t_last > 15000u) {
         hb_log("deploy: timed out");
         rx_end(D_MISSING);
@@ -1078,6 +1398,58 @@ static uint32_t deploy_tick(void)               /* the main loop's: a frame, the
         rx_draw("RECEIVING", C_WHITE);
     }
     return ch;
+}
+
+/* ---- the hand-over (platform.c's APP_BOOT_HOOK: in fm1_cstart after RAM is set up, before the
+ * guard, the screen, USB, audio and the timer). The boot firmware gets the chip as the SPL leaves
+ * it but for what its own start sets again anyway (vectors, interrupts, watchdog, GPIO), and r0,
+ * the SPL's boot-parameter pointer. It starts when it is the selected one, checks out (header,
+ * CRC through the SFC) and no key is held. A counter in NOINIT, cleared by a power-on, keeps
+ * harbor from handing over a third time without one: a boot firmware that crashes or hangs at
+ * start lands in harbor's menu, not in a loop. */
+static volatile uint32_t GO[2] __attribute__((section(".hbgo")));   /* [magic, starts], app.ld: above a boot firmware's
+                                                 * NOINIT (Felucca's ends at 0x01C7FCD0), below the SPL's area */
+#define GO_MAGIC 0x4F474248u                    /* "HBGO" */
+static uint32_t boot_why;                       /* why harbor stayed: 1 a key held, 2 started twice, 3 it fails its check */
+static void hb_boot_now(void)                   /* the boot firmware is the selected one: a reboot hands over */
+{
+    GO[0] = GO_MAGIC;
+    GO[1] = 0;
+    fm1_reboot();
+}
+static void hb_boot_hook(uint32_t p3)
+{
+    const hb_slot_t *b;
+    uint32_t t0;
+    if (GO[0] != GO_MAGIC || ((p3 & 1u) && !(p3 & (4u | 0x40u)))) {   /* a power-on */
+        GO[0] = GO_MAGIC;
+        GO[1] = 0;
+    }
+    flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;
+    if (!flash_ok)
+        return;
+    fl_plain_window_init();                     /* (the table and the settings are plain) */
+    store_load();
+    dt_load();
+    if (!(b = dt_boot()) || name_key(((const hb_file_t *)b->at)->name) != st.sel_key)
+        return;
+    t0 = fm1_ticks();
+    fm1_input_init();
+    do {
+        fm1_wdt_feed();
+        fm1_input_scan();
+    } while ((uint32_t)(fm1_ticks() - t0) < 50u * 1000u * FM1_TICKS_PER_US);
+    if (fm1_in.buttons & (1u << BTN_HOME | 1u << BTN_OCT_DOWN | 1u << BTN_OCT_UP)) {
+        boot_why = 1;                           /* HOME: harbor; OCT- the rescue; OCT+ the safe boot */
+        return;
+    }
+    if (GO[1] >= 2u) { boot_why = 2; return; }
+    if (check_boot(b) != M_OK) { boot_why = 3; return; }
+    GO[1]++;
+    bootguard_clear(&bootguard);                /* (its own boot guard counts its own boots) */
+    fm1_irq_off();
+    fm1_wdt_feed();
+    ((void (*)(uint32_t))FM1_XIP(HB_BOOT_IMG))(fm1_boot_param());
 }
 
 static void play_note(uint32_t ch, uint32_t key, uint32_t vel)
@@ -1103,6 +1475,12 @@ static void app_main(void)
         if (hb_nv.active > 1u && bootguard.failed)
             bootguard.failed--;                 /* a slot module hung, not the host's boot: as hb_fault */
     }
+    if (hb_probe.magic == PR_MAGIC && hb_probe.state == PR_RUNNING) {   /* reset in a probe: the watchdog or its own */
+        hb_probe.state = PR_HUNG;
+        hb_log_u32("reset in the probe", fm1_boot.p3_rst);
+        if (bootguard.failed)
+            bootguard.failed--;
+    }
     hb_nv.active = 0;
     hb_log_u32("harbor " APP_VER " boot, reset", fm1_boot.p3_rst);
     if (hb_nv.crash.magic == CRASH_MAGIC)
@@ -1125,6 +1503,10 @@ static void app_main(void)
     if (safe)
         hb_log("safe boot (OCT+): the sine only");
     k = safe ? 0 : find_key(st.sel_key);
+    if (k && mods[k].kind == K_BOOT) {          /* the boot firmware is the one, but harbor stayed: the sine */
+        hb_log_u32("boot firmware not started", boot_why);
+        k = 0;
+    }
     if (k && mods[k].state != M_OK) {
         hb_log_u32("skipped at boot", k);
         k = 0;
@@ -1262,6 +1644,13 @@ static void app_main(void)
                 picker = 0;
                 full = 1;
                 lcd_fill(0, 0, 240, 240, C_BLACK);
+                if (mods[sel].kind == K_BOOT && mods[sel].state == M_OK) {   /* a boot firmware: started by a reboot */
+                    stop_module();
+                    st.sel_key = mods[sel].key;
+                    store_flush();
+                    draw_text_box(0, 120, 240, &FONT_S, "STARTING", C_ACC, 1);
+                    hb_boot_now();
+                }
                 if (sel != cur || mods[sel].state == M_STRUCK || mods[sel].state == M_SLOW) {
                     if (mods[sel].state == M_STRUCK || mods[sel].state == M_SLOW) {   /* picked again: another chance */
                         hb_nv.strikes[sel] = 0;

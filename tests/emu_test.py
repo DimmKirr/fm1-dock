@@ -104,8 +104,9 @@ def main():
           "the built-in sine starts and plays a key")
 
     if "SINE" in names:
-        a, _ = run("sine_builtin", "1500:14,1900:14^", 2600)
-        b, log = run("sine_slot", pick("SINE") + ",1500:14,1900:14^", 2600)
+        # (a top-row key: a sensed one's lift is seen at the key scan's phase, which the picker shifts)
+        a, _ = run("sine_builtin", "1500:34,1900:34^", 2600)
+        b, log = run("sine_slot", pick("SINE") + ",1500:34,1900:34^", 2600)
         a, b = onset_frames(a), onset_frames(b)
         n = min(len(a), len(b))
         check("sine_slot", n > 40000 and a[:n] == b[:n] and "started 0000000" in log,

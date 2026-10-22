@@ -13,6 +13,7 @@
 
 On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/harbor.py ...):
   tools/harbor.py deploy MOD.hrbr [--port NAME] [--blind]   the module into its flash, then running
+                                       (a boot firmware, tools/hbboot.py: into the boot slot, then started)
   tools/harbor.py deploy MOD.hrbr --syx OUT.syx            the same as a SysEx file (send it slowly)
   tools/harbor.py modules | delete NAME | select NAME | safe | logs   [--port NAME]
   --blind: no answers (an interface into the DIN jack); the FM-1's screen shows how it went
