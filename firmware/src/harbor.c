@@ -26,7 +26,8 @@
  *   boot slot  a whole firmware (Felucca, ...; tools/hbboot.py) deployed above the host: at
  *              power-on harbor hands the FM-1 over to it before its own screen, USB and audio
  *              start (HOME held: harbor stays; two starts without a power cycle between: harbor
- *              stays). It is written as an update writes, encrypted with the chip key. */
+ *              stays). It is written as an update writes, encrypted with the chip key. One that
+ *              keeps no flash data (HB_F_BOOT_NODATA: FM-1 SID) leaves the deployed modules in. */
 #define APP_NAME "HARBOR"
 #define CV_MAX (240u * 96u)
 #define APP_FAULT_HOOK hb_fault
@@ -880,7 +881,7 @@ static uint32_t d_commit(uint32_t *key)
     for (i = 0; i < f->n_relocs; i++)
         if (rel[i] > isz - 4u)
             return D_BAD_HEAD;
-    if (dt_boot())
+    if (dt_boot() && !(((const hb_file_t *)dt_boot()->at)->flags & HB_F_BOOT_NODATA))
         return D_NO_SPACE;                      /* (the boot firmware's own data is where modules would go) */
     *key = name_key(f->name);
     old = dt_find(*key);
@@ -1009,11 +1010,14 @@ static uint32_t boot_begin(const uint8_t *h)    /* chunk 0 is a boot firmware's 
         f->code_size + 256u != rx.size || rx.size > HB_BOOT_HI - BOOT_AT)
         return D_BAD_HEAD;
     for (i = n = 0; i < dt.n; i++)
-        if (dt.s[i].magic != BOOT_MAGIC)
-            return D_NO_SPACE;                  /* deployed modules: their flash is the boot firmware's data */
+        if (dt.s[i].magic != BOOT_MAGIC) {
+            if (!(f->flags & HB_F_BOOT_NODATA))
+                return D_NO_SPACE;              /* deployed modules: their flash is the boot firmware's data */
+            e[n++] = dt.s[i];                   /* (one that keeps no data: they stay) */
+        }
     if (chip_key(&rx.key))
         return D_FLASH;
-    if (dt.n && dt_write(e, 0) != D_OK)        /* the old boot firmware out of the table first */
+    if (dt.n && dt_write(e, n) != D_OK)        /* the old boot firmware out of the table first */
         return D_FLASH;
     rx.boot = 1;
     rx.next = rx.crc_run = 0;
