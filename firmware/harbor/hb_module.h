@@ -208,6 +208,8 @@ typedef struct hb_probe {
  * desc = 0: the entry is the image's first byte, as the SPL's) and the image, its app.bin. The
  * host writes it encrypted with the chip key, as an update would, below the plain window. */
 #define HB_F_BOOT       0x200u                  /* hb_file_t.flags */
+#define HB_F_BOOT_NODATA 0x400u                 /* with HB_F_BOOT: it keeps nothing in flash outside its slot
+                                                 * (FM-1 SID), so deployed modules may stay beside it */
 #define HB_BOOT_LO      0x14000u                /* flash: the first sector (the header at its end) */
 #define HB_BOOT_IMG     0x15000u                /* the image */
 #define HB_BOOT_HI      0x93000u                /* the end (the plain window: Felucca's data from 0x97000) */

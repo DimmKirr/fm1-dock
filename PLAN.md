@@ -176,6 +176,12 @@ nothing on hardware):
     slot can start at 0x14000; Felucca leaves 4.6 KiB of it free.
   - fm1-emu (branch `fm1-sfc-window`, on `fm1-key-pressure`): the SFC's decryption below the plain
     window the firmware sets, the window rebuilt from a `--flash` file, `FM1_BENCH_KEYS=@FILE`.
+  - A boot firmware that keeps nothing in flash outside its slot (`hbboot.py make --no-data`,
+    HB_F_BOOT_NODATA) leaves the deployed modules in: they deploy beside it, and it beside them.
+    FM-1 SID (fm1-emu's fm1-sid, relinked for the slot, its tunes in its pack: 485 KiB with 15) with
+    CS-1 and SCINTILLA deployed (`tests/trio_test.py`, both orders): power-on starts the last pick
+    (FM-1 SID, or harbor with a module), HOME held keeps harbor, picking FM-1 SID in the list
+    stores it and reboots into it.
   - Not yet: SLOOP and the others (each one's flash map and NOINIT checked: Felucca's NOINIT ends at
     0x01C7FCD0), a resend of the deploy over USB (nothing tested over USB), a firmware's own updater
     (it would write over harbor: an install, as from the Hub).
@@ -192,6 +198,10 @@ nothing on hardware):
   - CS-1: CS-1's own app (cs1.c unchanged but for its platform include, `cs1_platform.h`): its
     pages, sounds, user presets (in the bank), MIDI learn and clock; 8 voices on core 0, worst
     61 % of a block; the keys' velocity and pressure from the host's sensing. Not here: the second core.
+  - SCINTILLA: joakimeriksson/scintilla-fm1's app and engine (the Elka Synthex of synthex-web, in
+    integers), taken by `modules/scintilla/take.py` (its app_main split into app_init / app_loop,
+    the first sound loaded while the audio is muted, the DIN jack the host's): 80 presets, its
+    pages and joystick, MIDI; 89 KB of code, 106 KB of RAM.
   - SINE: Dinghy's, and the built-in fallback.
 - **fm1-emu**: test with its current master. The binaries in `~/work/fm1-emu/target/release` were
   from 2026-10-12 and cannot run a pair move (`r5_r4 = r11_r10 #`) that master can;

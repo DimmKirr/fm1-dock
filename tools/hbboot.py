@@ -5,13 +5,15 @@ power-on in its place (HOME held at power-on: harbor).
 
   tools/hbboot.py relink SRC        a Felucca-family checkout made to run from the slot (its app.ld,
                                     hal/fm1_guard.h, tools/build.py; again: nothing changes)
-  tools/hbboot.py make APP.bin --name FELUCCA [--version 161] [-o OUT.hrbr]
-                                    its app.bin (built after relink) as a boot file
+  tools/hbboot.py make APP.bin --name FELUCCA [--version 161] [-o OUT.hrbr] [--no-data]
+                                    its app.bin (built after relink) as a boot file; --no-data: it
+                                    writes no flash outside its slot (FM-1 SID), modules may stay
   then: tools/harbor.py deploy OUT.hrbr (USB), or into fm1-emu: tools/harbor.py emu --fwsc ... --deploy
 
 A boot firmware has the FM-1 to itself and keeps its own flash areas (Felucca's: 0x97000 up);
 harbor keeps the table and its settings at 0x93000..0x96000, which Felucca leaves alone. Deployed
-modules and a boot firmware exclude each other: the modules' flash is the boot firmware's data."""
+modules and a boot firmware exclude each other: the modules' flash is the boot firmware's data,
+unless it keeps none (--no-data)."""
 import argparse
 import re
 import struct
@@ -22,14 +24,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hbmod  # noqa: E402
 
 HB_F_BOOT = 0x200
+HB_F_BOOT_NODATA = 0x400                        # it keeps nothing in flash outside its slot: modules may stay
 BOOT_LO, BOOT_IMG, BOOT_HI = 0x14000, 0x15000, 0x93000
 XIP = 0x02000000 + BOOT_IMG - 0x4000            # where the image runs: 0x02011000
 
 
-def make(app, name, version):
+def make(app, name, version, nodata=False):
     if len(app) > BOOT_HI - BOOT_IMG:
         raise SystemExit(f"{len(app)} B: the boot slot takes {BOOT_HI - BOOT_IMG} B")
-    h = {"magic": hbmod.HB_MAGIC, "abi": hbmod.HB_ABI, "flags": HB_F_BOOT, "name": name, "version": version,
+    h = {"magic": hbmod.HB_MAGIC, "abi": hbmod.HB_ABI, "flags": HB_F_BOOT | (HB_F_BOOT_NODATA if nodata else 0), "name": name, "version": version,
          "code_size": len(app), "data_size": 0, "bss_size": 0, "rt_size": 0, "worst_cycles": 0, "desc": 0,
          "base": XIP, "n_relocs": 0, "reserved": 0, "crc": 0}
     blob = hbmod.pack(h, [], app)
@@ -74,12 +77,13 @@ def main():
     m.add_argument("--name", required=True)
     m.add_argument("--version", type=int, default=1)
     m.add_argument("-o", "--out")
+    m.add_argument("--no-data", action="store_true", help="it writes no flash outside its slot (FM-1 SID): deployed modules may stay")
     a = ap.parse_args()
     if a.cmd == "relink":
         relink(a.src)
         return
     app = Path(a.app).read_bytes()
-    blob = make(app, a.name, a.version)
+    blob = make(app, a.name, a.version, a.no_data)
     out = Path(a.out or Path(a.app).with_suffix(".boot.hrbr"))
     out.write_bytes(blob)
     h, _, _ = hbmod.parse(blob)
