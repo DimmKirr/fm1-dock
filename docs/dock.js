@@ -128,7 +128,7 @@ export function decodeProbe(out) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // One FM-1 running fm1-dock, over a WebMIDI input / output pair.
-export class Fm1Dock {
+export class Dock {
   constructor(input, output, { onMidi, onTraffic } = {}) {
     this.input = input;
     this.output = output;

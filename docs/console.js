@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The page's console: fm1-dock on an FM-1 over WebMIDI (fm1-dock.js), and the flash map.
-import { Fm1Dock, CMD, moduleInfo, probeArg, Syms, hex32, sleep } from "./fm1-dock.js";
+// The page's console: fm1-dock on an FM-1 over WebMIDI (dock.js), and the flash map.
+import { Dock, CMD, moduleInfo, probeArg, Syms, hex32, sleep } from "./dock.js";
 
 const $ = (id) => document.getElementById(id);
 let access = null, hb = null, syms = null, busy = Promise.resolve(), probeBlob = null, follow = null, lastHello = null;
@@ -71,7 +71,7 @@ async function open() {
   if (hb) { hb.close(); hb = null; }
   const p = ports();
   if (!p) { setState("no FM-1 found: is it plugged in, running fm1-dock?", "bad"); enable(false); return; }
-  hb = new Fm1Dock(p.inp, p.out, { onMidi: midiIn, onTraffic: traffic });
+  hb = new Dock(p.inp, p.out, { onMidi: midiIn, onTraffic: traffic });
   setState(`opening ${p.out.name}…`);
   try {
     await refresh();
