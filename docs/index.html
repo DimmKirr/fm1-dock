@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harbor for the FM-1</title>
+<meta name="description" content="harbor: one firmware for the M-VAVE FM-1, many synths as modules. Switch between them on the device, deploy your own over USB, and debug them from the browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a1446'/%3E%3Cpath d='M4 13c4-5 8-5 12 0s8 5 12 0M4 20c4-5 8-5 12 0s8 5 12 0' fill='none' stroke='%23b48cff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#top"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#2a1446"/><path d="M4 13c4-5 8-5 12 0s8 5 12 0M4 20c4-5 8-5 12 0s8 5 12 0" fill="none" stroke="#b48cff" stroke-width="2.6" stroke-linecap="round"/></svg>harbor</a>
+  <nav>
+    <a href="#synths">Synths</a><a href="#play">Play</a><a href="#console">Console</a><a href="#emulator">Emulator</a>
+    <a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
+  </nav>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="hero-text">
+    <p class="kicker">for the M-VAVE FM-1</p>
+    <h1>One firmware.<br><span>Many synths.</span></h1>
+    <p class="lede">harbor is installed once. The synths are modules in flash: hold HOME and pick another one,
+      no reinstall. Deploy your own module over USB, no reinstall, and when something goes wrong, the log, the
+      crash record and the render load are one click away, here in the browser.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/joakimeriksson/fm1-harbor/releases">Download harbor</a>
+      <a class="btn" href="#console">Open the console</a>
+      <a class="btn" href="#build">Write a module</a>
+    </div>
+  </div>
+  <figure class="hero-video">
+    <video src="media/harbor.mp4" poster="media/harbor_poster.jpg" controls playsinline preload="none"></video>
+    <figcaption>A real FM-1 and the emulator, running the same firmware and the same flash.</figcaption>
+  </figure>
+</section>
+
+<section id="synths">
+  <h2>What's in the harbor</h2>
+  <p class="sub">The package carries four synths and a sine. FM-1 SID is deployed next to them over USB. Each runs alone, with all of
+    the module RAM, the screen and the panel to itself.</p>
+  <div class="cards">
+    <article class="card">
+      <img src="media/screen_cs1.png" alt="CS-1's screen: its tone bars and BLADE BRASS" loading="lazy">
+      <div><h3>CS-1</h3><p class="by">twochannels</p>
+        <p>A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys.</p>
+        <p class="meta">image module · 52 KB</p></div>
+    </article>
+    <article class="card">
+      <img src="media/screen_scintilla.png" alt="Scintilla's screen: RING MOD., Paul Wiffen's laser harp patch" loading="lazy">
+      <div><h3>Scintilla</h3><p class="by">Joakim Eriksson</p>
+        <p>The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them, checked sample by sample against its browser original.</p>
+        <p class="meta">image module · 87 KB</p></div>
+    </article>
+    <article class="card">
+      <img src="media/screen_obervave.png" alt="OberVave's PERFORM page: cutoff, resonance, envelope, release" loading="lazy">
+      <div><h3>OberVave</h3><p class="by">zvenson</p>
+        <p>A 4-track analog poly with arpeggiator, sequencer and effects: its pages, presets and patterns live in harbor's banks.</p>
+        <p class="meta">image module · 149 KB</p></div>
+    </article>
+    <article class="card">
+      <img src="media/screen_fm1sid.png" alt="FM-1 SID's screen: Arkanoid by Martin Galway, three voices, the filter, the scope" loading="lazy">
+      <div><h3>FM-1 SID</h3><p class="by">Joakim Eriksson</p>
+        <p>C64 music on the FM-1: a cycle-exact 6510, reSID and an own SID model, eleven tunes, subtunes on ALGORITHM, songs saved to banks.</p>
+        <p class="meta">deployed module · 267 KB</p></div>
+    </article>
+    <article class="card">
+      <img src="media/screen_sine.png" alt="SINE's screen: a sine to build on, the note C4" loading="lazy">
+      <div><h3>SINE</h3><p class="by">built in</p>
+        <p>Dinghy's 4-voice sine, always there: the fallback when a module fails, and the smallest module to copy.</p>
+        <p class="meta">built in · in the host</p></div>
+    </article>
+  </div>
+</section>
+
+<section id="play" class="split">
+  <div>
+    <h2>Playing it</h2>
+    <dl class="keys">
+      <dt>HOME</dt><dd>opens the picker. For a module that owns the whole panel, hold HOME alone for 1.5 s.</dd>
+      <dt>SELECT / PRESETS</dt><dd>move in the picker; <b>PLAY</b>, <b>SEL</b> or <b>HOME</b> load the module.</dd>
+      <dt>OCT+ at power-on</dt><dd>safe start: harbor plays the sine only.</dd>
+      <dt>OCT− at power-on</dt><dd>the USB rescue: no sound, only the updater, for any install.</dd>
+      <dt>HOME at power-on</dt><dd>harbor stays, even with a boot firmware in its slot.</dd>
+    </dl>
+    <p>harbor starts whatever played last. A module that crashes, or hangs into the watchdog, twice in a row is skipped at
+      boot until you pick it again. One that renders slower than real time for 64 blocks (0.4 s) is stopped and the sine
+      plays, so USB and the updater keep working.</p>
+  </div>
+  <figure><img src="media/screen_picker.png" alt="The picker: SINE, CS-1, SCINTILLA, OBERVAVE, FM-1 SID with their sizes" class="screen-lg"></figure>
+</section>
+
+<section id="console">
+  <h2>Console</h2>
+  <p class="sub">Talks to harbor on your FM-1 over USB-MIDI, as <code>tools/harbor.py</code> and <code>tools/probe.py</code> do.
+    Chrome or Edge on a computer (WebMIDI with SysEx; the browser asks first). Nothing is sent until you press a button.</p>
+
+  <div class="panel" id="con">
+    <div class="row">
+      <button id="c-connect" class="btn primary">Connect</button>
+      <select id="c-port" disabled><option>no MIDI ports yet</option></select>
+      <span id="c-state" class="pill">not connected</span>
+    </div>
+
+    <div class="grid">
+      <div class="box">
+        <div class="box-h"><h3>Status</h3><button id="c-hello" class="btn small" disabled>Refresh</button></div>
+        <table class="kv" id="c-status"><tr><td colspan="2" class="dim">Connect to see harbor's state.</td></tr></table>
+      </div>
+
+      <div class="box">
+        <div class="box-h"><h3>Modules</h3><span><button id="c-safe" class="btn small" disabled title="SAFE: back to the sine">Sine</button></span></div>
+        <table class="mods" id="c-mods"><tr><td class="dim">—</td></tr></table>
+      </div>
+
+      <div class="box wide">
+        <div class="box-h"><h3>Log</h3>
+          <span><label class="chk"><input type="checkbox" id="c-follow" disabled> follow</label>
+          <button id="c-log" class="btn small" disabled>Read</button></span></div>
+        <pre id="c-logtext" class="log">The host's log ring (2 KiB, survives a reset), with the crash record and render stats.</pre>
+      </div>
+
+      <div class="box">
+        <div class="box-h"><h3>Deploy a module</h3></div>
+        <p class="dim">A <code>.hrbr</code> (<code>tools/hbmod.py</code>) into its own flash; the table is written last, so a cut cable leaves the old state.</p>
+        <label class="file"><input type="file" id="c-deploy-file" accept=".hrbr" disabled><span>Choose .hrbr…</span></label>
+        <div class="progress"><div id="c-deploy-bar"></div></div>
+        <p id="c-deploy-msg" class="msg"></p>
+      </div>
+
+      <div class="box">
+        <div class="box-h"><h3>Run a probe</h3></div>
+        <p class="dim">A probe runs once from RAM and reports what it measured; nothing goes into flash. If it crashes, its output so far and the PC survive the reset.</p>
+        <div class="row"><button class="btn small" data-probe="hello" disabled title="probes/hello.c: the probe path itself">HELLO</button>
+          <button class="btn small" data-probe="timing" disabled title="probes/timing.c: what instructions cost on this FM-1">TIMING</button>
+          <span class="dim small">or your own:</span></div>
+        <label class="file"><input type="file" id="c-probe-file" accept=".hrbr" disabled><span>Choose probe…</span></label>
+        <input id="c-probe-arg" type="text" placeholder="argument: 1,2,0x30 or hex:0a0b" disabled>
+        <div class="row"><button id="c-probe-run" class="btn small" disabled>Run</button>
+          <button id="c-probe-result" class="btn small" disabled title="RESULT: the last probe's output again (after a crash)">Last result</button></div>
+        <div class="progress"><div id="c-probe-bar"></div></div>
+        <pre id="c-probe-out" class="log short"></pre>
+      </div>
+
+      <div class="box">
+        <div class="box-h"><h3>Symbols</h3></div>
+        <p class="dim">Load the <code>harbor.syms</code> of the build on your FM-1 (next to <code>harbor.fwsc</code> in a release, or <code>build/</code>): every PC
+          on this page then shows its function.</p>
+        <label class="file"><input type="file" id="c-syms" accept=".syms,.txt"><span>Choose harbor.syms…</span></label>
+        <p id="c-syms-msg" class="msg"></p>
+      </div>
+
+      <div class="box">
+        <div class="box-h"><h3>MIDI</h3><span><button id="c-note" class="btn small" disabled title="C4 for 300 ms, into the FM-1">Test note</button></span></div>
+        <p class="dim">What the FM-1 sends back (keys you play, a probe's notes): the quickest check that USB-MIDI out works.</p>
+        <pre id="c-midi" class="log short"></pre>
+      </div>
+    </div>
+
+    <details class="traffic"><summary>SysEx traffic</summary><pre id="c-traffic" class="log"></pre></details>
+  </div>
+</section>
+
+<section id="emulator" class="split">
+  <div>
+    <h2>The same firmware in the emulator</h2>
+    <p><a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a> runs FM-1 firmware unchanged: the same package, and with
+      <code>--flash</code> the same flash contents, deployed modules and banks included. Drop <code>harbor.fwsc</code> on the synth
+      below to run it in your browser.</p>
+    <pre class="code"><span class="c"># a window: the panel, your computer's keys and MIDI</span>
+fm1-live --fwsc harbor.fwsc --flash flash.bin
+
+<span class="c"># headless: a deploy into the DIN jack, the sound, the screen, the log</span>
+tools/harbor.py emu --fwsc build/harbor.fwsc --deploy fm1sid.hrbr --ms 6000
+
+<span class="c"># closer to the chip's speed and rules</span>
+FM1_STRICT=1 fm1-live --fwsc harbor.fwsc --mhz 960</pre>
+  </div>
+  <div class="emu-frame">
+    <iframe src="https://joakimeriksson.github.io/fm1-emu/?embed=1" title="fm1-emu: the FM-1 in the browser" loading="lazy" allow="midi; autoplay"></iframe>
+  </div>
+</section>
+
+<section id="debug">
+  <h2>Debugging, on the chip and in the emulator</h2>
+  <div class="cols">
+    <div>
+      <h3>What harbor keeps for you</h3>
+      <ul>
+        <li><b>The log</b>: a 2 KiB ring in RAM that survives a reset: boots, slot checks, module starts, saves, faults.
+          Modules write to it with <code>host->log()</code>.</li>
+        <li><b>The crash record</b>: vector, PC, return address, the module and the time of the last fault. Load the symbols above and the
+          console names the function.</li>
+        <li><b>The render load</b>: the last and the worst block, in 24 MHz ticks and as a share of the 5.8 ms a block may take,
+          and the overruns.</li>
+        <li><b>Strikes</b>: which modules crashed at boot and are being skipped.</li>
+      </ul>
+      <h3>Probes: ask the chip</h3>
+      <p>When the emulator and the FM-1 disagree, don't guess: write a probe. A probe is a small C program (<code>probes/*.c</code>)
+        that runs once from RAM inside harbor, with interrupts and hardware registers at its disposal, and writes typed records
+        (numbers, text, timings) that come back as JSON. The same probe runs in the emulator:</p>
+      <pre class="code">tools/probe.py run probes/timing.c --on emu,fm1    <span class="c"># side by side, with the ratio</span>
+tools/probe.py exec "r3 = r1 * r2" --regs r1=5,r2=7  <span class="c"># one instruction, on the chip</span></pre>
+    </div>
+    <div>
+      <h3>Where the emulator and the chip differ</h3>
+      <p>Found with probes on a real FM-1. Test there before calling anything safe.</p>
+      <table class="gaps">
+        <tr><th>Speed</th><td>The plain emulator runs about 1.85× fast (one instruction per 240 MHz cycle). Use <code>--mhz 130</code> for a rough check,
+          or <code>FM1_STRICT=1</code>: per-instruction costs measured on the chip and a flash cache model.</td></tr>
+        <tr><th>Costs</th><td>On the chip, ALU ops pair up (×0.6–0.75), a multiply costs 2, a divide 5.7, a call 3, and a scattered flash read
+          about 1.3 µs on a cache miss.</td></tr>
+        <tr><th>Alignment</th><td>Misaligned 16- and 32-bit RAM accesses fault on the chip; <code>FM1_STRICT=1</code> faults too.</td></tr>
+        <tr><th>Screen</th><td>A full LCD frame takes ~77 ms on the wire (SPI at ~11 MHz); redrawing everything often starves the audio.</td></tr>
+        <tr><th>Guards</th><td>The chip's PC limits and NULL-page guard are modelled; the write and stack limits are not yet.</td></tr>
+        <tr><th>USB</th><td>Never arm a USB endpoint from a probe: send with <code>host->midi_send()</code>. A stuck endpoint needs a replug.</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="build">
+  <h2>Write a module</h2>
+  <div class="cols">
+    <div>
+      <p>A module is a table of functions at the start of its image, linked against nothing of the host's. harbor checks its header,
+        ABI, CRC and sizes before anything of it runs, copies its <code>.data</code>, clears its <code>.bss</code> and calls
+        <code>init()</code>. <code>render()</code> runs in the audio interrupt, everything else in the main loop.</p>
+      <pre class="code"><span class="k">static void</span> render(int32_t *out, uint32_t n) { <span class="c">/* add n stereo frames, Q15 */</span> }
+<span class="k">static void</span> note(uint32_t ch, uint32_t key, uint32_t vel) { <span class="c">/* vel 0: off */</span> }
+<span class="k">static void</span> ui(uint32_t ev, int32_t arg) { <span class="c">/* buttons, encoders */</span> }
+<span class="k">static void</span> draw(uint32_t full) { <span class="c">/* what changed */</span> }
+
+HB_DESC = { HB_ABI, <span class="s">"MYSYNTH"</span>, init, release, note, cc,
+            render, ui, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi };</pre>
+      <pre class="code"><span class="c"># modules/mysynth/module.cfg: name, version, sources, cflags, includes, libs</span>
+python3 tools/hbmod.py modules/mysynth      <span class="c"># -> build/modules/MYSYNTH.hrbr</span>
+uv run --with python-rtmidi tools/harbor.py deploy build/modules/MYSYNTH.hrbr
+<span class="c"># or drop the .hrbr on "Deploy a module" above</span></pre>
+      <p>Start from <code>modules/sine/sine.c</code> (about 150 lines). The host gives a module the time, the log, the screen
+        (text, a canvas, blits), the LEDs (lit or a dim glow), its own settings record and flash banks, MIDI out, the MASTER gain and
+        the keys' force: <a href="https://github.com/joakimeriksson/fm1-harbor/blob/main/firmware/harbor/hb_module.h">hb_module.h</a> has every call.</p>
+    </div>
+    <div>
+      <h3>Limits</h3>
+      <table class="kv">
+        <tr><td>module RAM (<code>.data</code> + <code>.bss</code>)</td><td>272 KiB at 0x01C30000</td></tr>
+        <tr><td><code>.ram_text</code> (code in RAM)</td><td>16 KiB, call it through <code>HB_FAR</code></td></tr>
+        <tr><td>a deploy file</td><td>up to 272 KiB</td></tr>
+        <tr><td>deploy area</td><td>296 KiB for all deployed modules</td></tr>
+        <tr><td>settings record</td><td>240 B per module</td></tr>
+        <tr><td>banks</td><td>9 × 8 KiB, shared by all modules</td></tr>
+        <tr><td>audio block</td><td>256 frames at 44.1 kHz: 5.8 ms</td></tr>
+        <tr><td>CPU</td><td>one core at 240 MHz, integers only, no 64-bit division</td></tr>
+        <tr><td>a probe</td><td>192 KiB file, 80 KiB RAM, 8 KiB output; watchdog 8 s</td></tr>
+      </table>
+      <h3>Flash</h3>
+      <div class="fmap" id="fmap"></div>
+      <p class="dim">Offsets in the FM-1's 1 MiB flash. An update writes up to 0x93000; deployed modules, their table, the settings and the
+        banks are above it, so installing a new harbor keeps them.</p>
+    </div>
+  </div>
+</section>
+
+<section id="protocol">
+  <h2>Protocol</h2>
+  <p class="sub">Everything the console does is SysEx over USB-MIDI (or the DIN jack, unanswered). Another tool, or an emulator, needs only this.</p>
+  <div class="cols">
+    <div>
+      <pre class="code">F0 7D 48 42 <i>cmd</i> <i>seq</i> pack7(<i>payload</i> + CRC-32(<i>payload</i>)) F7
+
+<span class="c">7D: non-commercial id; 48 42: "HB". pack7: 8-to-7 bits, LSB first.
+A reply: cmd | 0x40 (0x7F: refused), the same seq; its payload
+starts with a status byte (0 done). Little-endian words.</span></pre>
+      <table class="proto">
+        <tr><th>cmd</th><th>name</th><th>payload → reply</th></tr>
+        <tr><td>01</td><td>HELLO</td><td>— → proto, abi, modules, current, receiving; free, largest gap, max file, crash PC, crash module, worst, overruns, log length, block ticks</td></tr>
+        <tr><td>02</td><td>LIST</td><td>— → one reply per module: index, state, kind, version, size, address, name[24]; index FF ends</td></tr>
+        <tr><td>10</td><td>BEGIN</td><td>size, CRC-32, name[24] → status (the module stops)</td></tr>
+        <tr><td>11</td><td>DATA</td><td>offset, ≤ 256 bytes → status</td></tr>
+        <tr><td>12</td><td>COMMIT</td><td>— → status, flash address (written, checked, running)</td></tr>
+        <tr><td>13</td><td>ABORT</td><td>—</td></tr>
+        <tr><td>14</td><td>DELETE</td><td>name[24] → status</td></tr>
+        <tr><td>20</td><td>LOG</td><td>from → status, log length, at, up to 180 bytes</td></tr>
+        <tr><td>21</td><td>SAFE</td><td>— → status (the sine plays)</td></tr>
+        <tr><td>22</td><td>SELECT</td><td>name[24] → status</td></tr>
+        <tr><td>30</td><td>RUN</td><td>run id, argument (after BEGIN / DATA) → status, then the result</td></tr>
+        <tr><td>31</td><td>RESULT</td><td>from → state, id, rc, ticks, length, PC, at, output</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Status codes</h3>
+      <p class="mono small">0 done · 1 bad CRC · 2 bad header · 3 too big · 4 no space · 5 flash error · 6 verify failed ·
+        7 data missing · 8 not started · 9 not found · 10 bad message</p>
+      <h3>Module states</h3>
+      <p class="mono small">0 ok · 1 bad CRC · 2 bad header · 3 too big · 4 crashed · 5 init failed · 6 too slow</p>
+      <h3>A module file (.hrbr)</h3>
+      <p>An 80-byte header (magic "HRBR", ABI, flags, name, version, code / data / bss / ram_text sizes, measured worst cycles,
+        descriptor offset, base, relocation count, CRC-32), the relocations, then the image on a 256-byte boundary. Whoever
+        moves it adds the difference to each relocated word, which is how one file lands anywhere in the deploy area.</p>
+      <p>Implementations: <a href="https://github.com/joakimeriksson/fm1-harbor/blob/main/tools/hbdeploy.py">tools/hbdeploy.py</a>
+        (Python), <a href="harbor.js">harbor.js</a> (this page), and the device side in
+        <a href="https://github.com/joakimeriksson/fm1-harbor/blob/main/firmware/src/harbor.c">firmware/src/harbor.c</a>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="credits" class="credits">
+  <h2>Credits</h2>
+  <p><b>harbor</b>, <b>FM-1 SID</b> and <b>Scintilla</b>: Joakim Eriksson. <b>OberVave</b>: zvenson. <b>CS-1</b>: twochannels.
+    harbor stands on <a href="https://github.com/zvenson/dinghy">Dinghy</a> (zvenson), on the platform of
+    <a href="https://github.com/hugelton/Felucca">Felucca</a> (Leo Kuroshita, Hügelton Instruments) as
+    <a href="https://github.com/isod89/sloop-fm1">SLOOP</a> (isod89) carries it. reSID by Dag Lem; the SID tunes by their composers
+    (Martin Galway, Rob Hubbard and friends). The keys' force sensing comes from Velo, by way of CS-1.</p>
+  <p class="dim">GPL-3.0-only. Not affiliated with M-VAVE. Installing firmware is at your own risk; the USB rescue (OCT− at power-on) is
+    always there.</p>
+</section>
+</main>
+
+<script type="module" src="console.js"></script>
+</body>
+</html>
