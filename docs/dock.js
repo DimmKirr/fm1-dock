@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// harbor's SysEx protocol in the browser (WebMIDI): what tools/hbdeploy.py and tools/probe.py do,
+// fm1-dock's SysEx protocol in the browser (WebMIDI): what tools/hbdeploy.py and tools/probe.py do,
 // for the console on index.html. The device side: firmware/src/harbor.c, "deploys".
 //   frame    F0 7D 48 42 cmd seq pack7(payload + CRC-32 of the payload, little endian) F7
 //   replies  cmd | 0x40 (0x7F: refused), the same seq; the payload starts with a status byte
@@ -79,7 +79,7 @@ export function frame(cmd, seq, payload = new Uint8Array(0)) {
   return Uint8Array.from([0xf0, ...MAN, cmd, seq & 0x7f, ...pack7(body), 0xf7]);
 }
 
-export function parse(msg) {                    // a reply: {cmd, seq, d}, or null if not harbor's / damaged
+export function parse(msg) {                    // a reply: {cmd, seq, d}, or null if not fm1-dock's / damaged
   if (msg.length < 7 || msg[0] !== 0xf0 || msg[msg.length - 1] !== 0xf7) return null;
   if (msg[1] !== MAN[0] || msg[2] !== MAN[1] || msg[3] !== MAN[2]) return null;
   const d = unpack7(msg.subarray(6, msg.length - 1));
@@ -88,7 +88,7 @@ export function parse(msg) {                    // a reply: {cmd, seq, d}, or nu
 }
 
 export function moduleInfo(blob) {              // a .hrbr's header (hb_file_t), or throws
-  if (blob.length < 80 || rd32(blob, 0) !== HRBR_MAGIC) throw new Error("not a harbor module file (.hrbr)");
+  if (blob.length < 80 || rd32(blob, 0) !== HRBR_MAGIC) throw new Error("not a fm1-dock module file (.hrbr)");
   const flags = rd32(blob, 8);
   return { abi: rd32(blob, 4), flags, name: cstr(blob, 12, 36), version: rd32(blob, 36),
     code: rd32(blob, 40), data: rd32(blob, 44), bss: rd32(blob, 48), rt: rd32(blob, 52),
@@ -127,8 +127,8 @@ export function decodeProbe(out) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// One FM-1 running harbor, over a WebMIDI input / output pair.
-export class Harbor {
+// One FM-1 running fm1-dock, over a WebMIDI input / output pair.
+export class Fm1Dock {
   constructor(input, output, { onMidi, onTraffic } = {}) {
     this.input = input;
     this.output = output;
@@ -180,7 +180,7 @@ export class Harbor {
       });
       if (got) return got;
     }
-    throw new Error(`no answer from the FM-1 (command 0x${cmd.toString(16).padStart(2, "0")}): is harbor running?`);
+    throw new Error(`no answer from the FM-1 (command 0x${cmd.toString(16).padStart(2, "0")}): is fm1-dock running?`);
   }
 
   async hello() {
@@ -227,8 +227,8 @@ export class Harbor {
   async deploy(blob, progress = () => {}, run = null) {
     const info = moduleInfo(blob);
     const h = await this.hello();
-    if (h.abi !== info.abi) throw new Error(`the FM-1's harbor speaks ABI ${h.abi}, ${info.name} was built for ${info.abi}`);
-    if (!info.boot && blob.length > h.maxFile) throw new Error(`${info.name}: ${blob.length} B, harbor takes up to ${h.maxFile} B`);
+    if (h.abi !== info.abi) throw new Error(`the FM-1's fm1-dock speaks ABI ${h.abi}, ${info.name} was built for ${info.abi}`);
+    if (!info.boot && blob.length > h.maxFile) throw new Error(`${info.name}: ${blob.length} B, fm1-dock takes up to ${h.maxFile} B`);
     const begin = cat(u32(blob.length), u32(crc32(blob)), name24(info.name));
     let d = await this.ask(CMD.BEGIN, begin, { timeout: 2000, tries: 4 });
     if (d[0]) throw new Error(`${info.name}: ${status(d)} (at BEGIN)`);

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>harbor for the FM-1</title>
-<meta name="description" content="harbor: one firmware for the M-VAVE FM-1, many synths as modules. Switch between them on the device, deploy your own over USB, and debug them from the browser.">
+<title>fm1-dock</title>
+<meta name="description" content="fm1-dock: one firmware for the M-VAVE FM-1, many synths as modules. Switch between them on the device, deploy your own over USB, and debug them from the browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="#top"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#2a1446"/><path d="M4 13c4-5 8-5 12 0s8 5 12 0M4 20c4-5 8-5 12 0s8 5 12 0" fill="none" stroke="#b48cff" stroke-width="2.6" stroke-linecap="round"/></svg>harbor</a>
+  <a class="brand" href="#top"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#2a1446"/><path d="M4 13c4-5 8-5 12 0s8 5 12 0M4 20c4-5 8-5 12 0s8 5 12 0" fill="none" stroke="#b48cff" stroke-width="2.6" stroke-linecap="round"/></svg>fm1-dock</a>
   <nav>
     <a href="#synths">Synths</a><a href="#play">Play</a><a href="#console">Console</a><a href="#emulator">Emulator</a>
     <a href="#debug">Debug</a><a href="#build">Build a module</a><a href="#protocol">Protocol</a>
@@ -25,23 +25,23 @@
   <div class="hero-text">
     <p class="kicker">for the M-VAVE FM-1</p>
     <h1>One firmware.<br><span>Many synths.</span></h1>
-    <p class="lede">harbor is installed once. The synths are modules in flash: hold HOME and pick another one,
+    <p class="lede">fm1-dock is installed once. The synths are modules in flash: hold HOME and pick another one,
       no reinstall. Deploy your own module over USB, no reinstall, and when something goes wrong, the log, the
       crash record and the render load are one click away, here in the browser.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/joakimeriksson/fm1-harbor/releases">Download harbor</a>
+      <a class="btn primary" href="https://github.com/joakimeriksson/fm1-dock/releases">Download fm1-dock</a>
       <a class="btn" href="#console">Open the console</a>
       <a class="btn" href="#build">Write a module</a>
     </div>
   </div>
   <figure class="hero-video">
-    <video src="media/harbor.mp4" poster="media/harbor_poster.jpg" controls playsinline preload="none"></video>
+    <video src="media/fm1-dock.mp4" poster="media/fm1-dock_poster.jpg" controls playsinline preload="none"></video>
     <figcaption>A real FM-1 and the emulator, running the same firmware and the same flash.</figcaption>
   </figure>
 </section>
 
 <section id="synths">
-  <h2>What's in the harbor</h2>
+  <h2>What's in the dock</h2>
   <p class="sub">The package carries four synths and a sine. FM-1 SID is deployed next to them over USB. Each runs alone, with all of
     the module RAM, the screen and the panel to itself.</p>
   <div class="cards">
@@ -60,7 +60,7 @@
     <article class="card">
       <img src="media/screen_obervave.png" alt="OberVave's PERFORM page: cutoff, resonance, envelope, release" loading="lazy">
       <div><h3>OberVave</h3><p class="by">zvenson</p>
-        <p>A 4-track analog poly with arpeggiator, sequencer and effects: its pages, presets and patterns live in harbor's banks.</p>
+        <p>A 4-track analog poly with arpeggiator, sequencer and effects: its pages, presets and patterns live in fm1-dock's banks.</p>
         <p class="meta">image module · 149 KB</p></div>
     </article>
     <article class="card">
@@ -84,11 +84,11 @@
     <dl class="keys">
       <dt>HOME</dt><dd>opens the picker. For a module that owns the whole panel, hold HOME alone for 1.5 s.</dd>
       <dt>SELECT / PRESETS</dt><dd>move in the picker; <b>PLAY</b>, <b>SEL</b> or <b>HOME</b> load the module.</dd>
-      <dt>OCT+ at power-on</dt><dd>safe start: harbor plays the sine only.</dd>
+      <dt>OCT+ at power-on</dt><dd>safe start: fm1-dock plays the sine only.</dd>
       <dt>OCT− at power-on</dt><dd>the USB rescue: no sound, only the updater, for any install.</dd>
-      <dt>HOME at power-on</dt><dd>harbor stays, even with a boot firmware in its slot.</dd>
+      <dt>HOME at power-on</dt><dd>fm1-dock stays, even with a boot firmware in its slot.</dd>
     </dl>
-    <p>harbor starts whatever played last. A module that crashes, or hangs into the watchdog, twice in a row is skipped at
+    <p>fm1-dock starts whatever played last. A module that crashes, or hangs into the watchdog, twice in a row is skipped at
       boot until you pick it again. One that renders slower than real time for 64 blocks (0.4 s) is stopped and the sine
       plays, so USB and the updater keep working.</p>
   </div>
@@ -97,7 +97,7 @@
 
 <section id="console">
   <h2>Console</h2>
-  <p class="sub">Talks to harbor on your FM-1 over USB-MIDI, as <code>tools/harbor.py</code> and <code>tools/probe.py</code> do.
+  <p class="sub">Talks to fm1-dock on your FM-1 over USB-MIDI, as <code>tools/harbor.py</code> and <code>tools/probe.py</code> do.
     Chrome or Edge on a computer (WebMIDI with SysEx; the browser asks first). Nothing is sent until you press a button.</p>
 
   <div class="panel" id="con">
@@ -110,7 +110,7 @@
     <div class="grid">
       <div class="box">
         <div class="box-h"><h3>Status</h3><button id="c-hello" class="btn small" disabled>Refresh</button></div>
-        <table class="kv" id="c-status"><tr><td colspan="2" class="dim">Connect to see harbor's state.</td></tr></table>
+        <table class="kv" id="c-status"><tr><td colspan="2" class="dim">Connect to see fm1-dock's state.</td></tr></table>
       </div>
 
       <div class="box">
@@ -190,7 +190,7 @@ FM1_STRICT=1 fm1-live --fwsc harbor.fwsc --mhz 960</pre>
   <h2>Debugging, on the chip and in the emulator</h2>
   <div class="cols">
     <div>
-      <h3>What harbor keeps for you</h3>
+      <h3>What fm1-dock keeps for you</h3>
       <ul>
         <li><b>The log</b>: a 2 KiB ring in RAM that survives a reset: boots, slot checks, module starts, saves, faults.
           Modules write to it with <code>host->log()</code>.</li>
@@ -202,7 +202,7 @@ FM1_STRICT=1 fm1-live --fwsc harbor.fwsc --mhz 960</pre>
       </ul>
       <h3>Probes: ask the chip</h3>
       <p>When the emulator and the FM-1 disagree, don't guess: write a probe. A probe is a small C program (<code>probes/*.c</code>)
-        that runs once from RAM inside harbor, with interrupts and hardware registers at its disposal, and writes typed records
+        that runs once from RAM inside fm1-dock, with interrupts and hardware registers at its disposal, and writes typed records
         (numbers, text, timings) that come back as JSON. The same probe runs in the emulator:</p>
       <pre class="code">tools/probe.py run probes/timing.c --on emu,fm1    <span class="c"># side by side, with the ratio</span>
 tools/probe.py exec "r3 = r1 * r2" --regs r1=5,r2=7  <span class="c"># one instruction, on the chip</span></pre>
@@ -228,7 +228,7 @@ tools/probe.py exec "r3 = r1 * r2" --regs r1=5,r2=7  <span class="c"># one instr
   <h2>Write a module</h2>
   <div class="cols">
     <div>
-      <p>A module is a table of functions at the start of its image, linked against nothing of the host's. harbor checks its header,
+      <p>A module is a table of functions at the start of its image, linked against nothing of the host's. fm1-dock checks its header,
         ABI, CRC and sizes before anything of it runs, copies its <code>.data</code>, clears its <code>.bss</code> and calls
         <code>init()</code>. <code>render()</code> runs in the audio interrupt, everything else in the main loop.</p>
       <pre class="code"><span class="k">static void</span> render(int32_t *out, uint32_t n) { <span class="c">/* add n stereo frames, Q15 */</span> }
@@ -244,7 +244,7 @@ uv run --with python-rtmidi tools/harbor.py deploy build/modules/MYSYNTH.hrbr
 <span class="c"># or drop the .hrbr on "Deploy a module" above</span></pre>
       <p>Start from <code>modules/sine/sine.c</code> (about 150 lines). The host gives a module the time, the log, the screen
         (text, a canvas, blits), the LEDs (lit or a dim glow), its own settings record and flash banks, MIDI out, the MASTER gain and
-        the keys' force: <a href="https://github.com/joakimeriksson/fm1-harbor/blob/main/firmware/harbor/hb_module.h">hb_module.h</a> has every call.</p>
+        the keys' force: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/harbor/hb_module.h">hb_module.h</a> has every call.</p>
     </div>
     <div>
       <h3>Limits</h3>
@@ -262,7 +262,7 @@ uv run --with python-rtmidi tools/harbor.py deploy build/modules/MYSYNTH.hrbr
       <h3>Flash</h3>
       <div class="fmap" id="fmap"></div>
       <p class="dim">Offsets in the FM-1's 1 MiB flash. An update writes up to 0x93000; deployed modules, their table, the settings and the
-        banks are above it, so installing a new harbor keeps them.</p>
+        banks are above it, so installing a new fm1-dock keeps them.</p>
     </div>
   </div>
 </section>
@@ -303,17 +303,17 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
       <p>An 80-byte header (magic "HRBR", ABI, flags, name, version, code / data / bss / ram_text sizes, measured worst cycles,
         descriptor offset, base, relocation count, CRC-32), the relocations, then the image on a 256-byte boundary. Whoever
         moves it adds the difference to each relocated word, which is how one file lands anywhere in the deploy area.</p>
-      <p>Implementations: <a href="https://github.com/joakimeriksson/fm1-harbor/blob/main/tools/hbdeploy.py">tools/hbdeploy.py</a>
-        (Python), <a href="harbor.js">harbor.js</a> (this page), and the device side in
-        <a href="https://github.com/joakimeriksson/fm1-harbor/blob/main/firmware/src/harbor.c">firmware/src/harbor.c</a>.</p>
+      <p>Implementations: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/tools/hbdeploy.py">tools/hbdeploy.py</a>
+        (Python), <a href="dock.js">dock.js</a> (this page), and the device side in
+        <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/src/harbor.c">firmware/src/harbor.c</a>.</p>
     </div>
   </div>
 </section>
 
 <section id="credits" class="credits">
   <h2>Credits</h2>
-  <p><b>harbor</b>, <b>FM-1 SID</b> and <b>Scintilla</b>: Joakim Eriksson. <b>OberVave</b>: zvenson. <b>CS-1</b>: twochannels.
-    harbor stands on <a href="https://github.com/zvenson/dinghy">Dinghy</a> (zvenson), on the platform of
+  <p><b>fm1-dock</b>, <b>FM-1 SID</b> and <b>Scintilla</b>: Joakim Eriksson. <b>OberVave</b>: zvenson. <b>CS-1</b>: twochannels.
+    fm1-dock stands on <a href="https://github.com/zvenson/dinghy">Dinghy</a> (zvenson), on the platform of
     <a href="https://github.com/hugelton/Felucca">Felucca</a> (Leo Kuroshita, Hügelton Instruments) as
     <a href="https://github.com/isod89/sloop-fm1">SLOOP</a> (isod89) carries it. reSID by Dag Lem; the SID tunes by their composers
     (Martin Galway, Rob Hubbard and friends). The keys' force sensing comes from Velo, by way of CS-1.</p>

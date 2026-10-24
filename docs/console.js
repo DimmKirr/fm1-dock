@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The page's console: harbor on an FM-1 over WebMIDI (harbor.js), and the flash map.
-import { Harbor, CMD, moduleInfo, probeArg, Syms, hex32, sleep } from "./harbor.js";
+// The page's console: fm1-dock on an FM-1 over WebMIDI (fm1-dock.js), and the flash map.
+import { Fm1Dock, CMD, moduleInfo, probeArg, Syms, hex32, sleep } from "./fm1-dock.js";
 
 const $ = (id) => document.getElementById(id);
 let access = null, hb = null, syms = null, busy = Promise.resolve(), probeBlob = null, follow = null, lastHello = null;
@@ -59,19 +59,19 @@ function ports() {
   const sel = $("c-port"), keep = sel.value;
   sel.innerHTML = "";
   for (const o of outs) sel.add(new Option(o.name, o.id));
-  const want = outs.find((o) => o.id === keep) || outs.find((o) => /felucca|harbor|fm-?1/i.test(o.name)) || outs[0];
+  const want = outs.find((o) => o.id === keep) || outs.find((o) => /felucca|harbor|dock|fm-?1/i.test(o.name)) || outs[0];
   if (!want) { sel.add(new Option("no MIDI outputs")); sel.disabled = true; return null; }
   sel.value = want.id;
   sel.disabled = false;
-  const inp = ins.find((i) => i.name === want.name) || ins.find((i) => /felucca|harbor|fm-?1/i.test(i.name));
+  const inp = ins.find((i) => i.name === want.name) || ins.find((i) => /felucca|harbor|dock|fm-?1/i.test(i.name));
   return inp ? { out: want, inp } : null;
 }
 
 async function open() {
   if (hb) { hb.close(); hb = null; }
   const p = ports();
-  if (!p) { setState("no FM-1 found: is it plugged in, running harbor?", "bad"); enable(false); return; }
-  hb = new Harbor(p.inp, p.out, { onMidi: midiIn, onTraffic: traffic });
+  if (!p) { setState("no FM-1 found: is it plugged in, running fm1-dock?", "bad"); enable(false); return; }
+  hb = new Fm1Dock(p.inp, p.out, { onMidi: midiIn, onTraffic: traffic });
   setState(`opening ${p.out.name}…`);
   try {
     await refresh();
@@ -220,7 +220,7 @@ async function runProbe() {
       await sleep(1000);
       try { await open(); showProbe(await serial(() => hb.result())); return; } catch { /* not back yet */ }
     }
-    out.textContent += "\nthe FM-1 did not come back over USB: replug it (harbor keeps the result) and press Last result.";
+    out.textContent += "\nthe FM-1 did not come back over USB: replug it (fm1-dock keeps the result) and press Last result.";
   } catch (e) { out.textContent = e.message; }
 }
 
@@ -249,7 +249,7 @@ $("c-follow").onchange = (e) => {
 $("c-deploy-file").onchange = deployFile;
 $("c-probe-file").onchange = probeFile;
 $("c-probe-run").onclick = runProbe;
-for (const b of document.querySelectorAll("[data-probe]")) {   // the probes this page carries (docs/probes/, harbor's ABI 2)
+for (const b of document.querySelectorAll("[data-probe]")) {   // the probes this page carries (docs/probes/, fm1-dock's ABI 2)
   b.onclick = async () => {
     const r = await fetch(`probes/${b.dataset.probe}.hrbr`);
     if (!r.ok) { $("c-probe-out").textContent = `probes/${b.dataset.probe}.hrbr: ${r.status}`; return; }
@@ -279,13 +279,13 @@ for (const l of document.querySelectorAll(".file")) {
 // the flash map (flash offsets; firmware/src/harbor.c)
 const FLASH = [
   [0x000000, 0x004000, "boot and the package header", "other"],
-  [0x004000, 0x034000, "harbor (the host)", "upd"],
+  [0x004000, 0x034000, "fm1-dock (the host)", "upd"],
   [0x034000, 0x035000, "slot table", "upd"],
   [0x035000, 0x093000, "image modules", "upd"],
   [0x093000, 0x095000, "deployed table, two copies", "keep"],
   [0x095000, 0x096000, "settings", "keep"],
   [0x096000, 0x0e0000, "deployed modules", "keep"],
-  [0x0e0000, 0x0ea000, "not harbor's", "other"],
+  [0x0e0000, 0x0ea000, "not fm1-dock's", "other"],
   [0x0ea000, 0x0fc000, "banks (9 × 8 KiB)", "keep"],
   [0x0fc000, 0x100000, "a boot firmware's sector", "other"],
 ];
