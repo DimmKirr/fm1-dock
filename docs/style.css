@@ -6,8 +6,8 @@
   --line: #2e2a3b;
   --fg: #ece9f3;
   --dim: #9a94aa;
-  --acc: #b48cff;
-  --acc2: #7d5cd6;
+  --acc: #b394ea;            /* the logo's lilac (#a98add), a touch lighter for text on dark */
+  --acc2: #8a6bc9;
   --ok: #7fd49a;
   --bad: #ff7a66;
   --warn: #ffcf66;
@@ -31,13 +31,14 @@ h3 { font-size: 1.05rem; font-weight: 600; }
 .top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 24px; padding: 10px 24px;
   background: rgba(14, 13, 18, 0.85); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 800; font-size: 1.15rem; }
-.brand svg { width: 28px; height: 28px; }
+.brand img { height: 30px; display: block; }
 .top nav { min-width: 0; display: flex; gap: 18px; overflow-x: auto; scrollbar-width: none; }
 .top nav a { color: var(--dim); font-size: 0.92rem; white-space: nowrap; }
 .top nav a:hover { color: var(--fg); text-decoration: none; }
 
 main section { max-width: 1180px; margin: 0 auto; padding: 72px 24px 24px; }
 .hero { display: grid; grid-template-columns: 1fr 1.15fr; gap: 48px; align-items: center; padding-top: 56px; }
+.hero-logo { width: min(340px, 80%); display: block; margin: 0 0 18px -6px; }
 .kicker { color: var(--acc); font: 600 0.85rem var(--mono); text-transform: uppercase; letter-spacing: 0.12em; margin: 0 0 12px; }
 .hero h1 { font-size: clamp(2.4rem, 5vw, 3.8rem); font-weight: 800; letter-spacing: -0.03em; }
 .hero h1 span { color: var(--acc); }
@@ -50,8 +51,8 @@ figcaption { color: var(--dim); font-size: 0.85rem; margin-top: 8px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 9px; border: 1px solid var(--line);
   background: var(--bg3); color: var(--fg); font: 600 0.95rem var(--sans); cursor: pointer; }
 .btn:hover { border-color: var(--acc2); text-decoration: none; }
-.btn.primary { background: var(--acc); border-color: var(--acc); color: #1a0f2e; }
-.btn.primary:hover { background: #c6a6ff; }
+.btn.primary { background: #a98add; border-color: #a98add; color: #2f1840; }
+.btn.primary:hover { background: #bda4e8; }
 .btn.small { padding: 4px 10px; font-size: 0.82rem; border-radius: 7px; }
 .btn.danger { color: var(--bad); }
 .btn:disabled { opacity: 0.4; cursor: default; }
