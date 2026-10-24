@@ -1,128 +1,111 @@
-<p align="center"><img src="assets/logo.svg" width="96" alt="Dinghy"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/fm1-dock-light.svg">
+    <img src="docs/media/fm1-dock.svg" width="420" alt="fm1-dock">
+  </picture>
+</p>
 
-# Dinghy
+<p align="center"><b>One firmware for the M-VAVE FM-1. Many synths.</b></p>
 
-**The smallest firmware for the M-VAVE FM-1 to build your own on.**
+fm1-dock is installed once. The synths are modules in flash: hold HOME, pick another one, play. No reinstall.
+Deploy your own module over USB in seconds, and when something goes wrong, the log, the crash record and the
+render load are one click away in the browser.
 
-Dinghy plays a sine wave on the keys, and that is all it does. Under it is everything an FM-1 firmware needs
-before it can be any fun: the update path, the USB rescue, USB-MIDI, USB audio, the keys, knobs and LEDs, the
-screen and a place to keep settings. It all works, so you start with the part you actually want to write.
+<p align="center"><img src="docs/media/fm1-on-device.jpg" width="640" alt="The picker on a real FM-1: SINE, CS-1, SCINTILLA, OBERVAVE, FM-1 SID"></p>
 
+**[The page](https://joakimeriksson.github.io/fm1-dock/)**: the video, the console (status, log, deploy and probes over
+WebMIDI), the emulator in the browser, the module interface and the protocol.
+
+## What's in the dock
+
+<p align="center"><img src="docs/media/screens.png" width="816" alt="The picker, FM-1 SID, CS-1, Scintilla's laser harp, OberVave and the sine, as fm1-emu draws them"></p>
+
+| | by | |
+| --- | --- | --- |
+| **CS-1** | twochannels | A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys. |
+| **Scintilla** | Joakim Eriksson | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. |
+| **OberVave** | zvenson | A 4-track analog poly with arpeggiator, sequencer and effects. |
+| **FM-1 SID** | Joakim Eriksson | C64 music: a cycle-exact 6510, reSID and an own SID model; tunes, subtunes, songs saved to banks. Deployed next to the others (it is too big for the package). |
+| **SINE** | built in | Dinghy's 4-voice sine: the fallback when a module fails, and the smallest module to copy. |
+
+## Install
+
+Download `harbor.fwsc` from the [releases](https://github.com/joakimeriksson/fm1-dock/releases) (the files still carry the
+old name, harbor, until the code is renamed) and install it over USB:
+
+```sh
+pip3 install mido python-rtmidi
+python3 tools/fm1_install.py harbor.fwsc        # asks before it writes, restarts into fm1-dock
 ```
-firmware/src/dinghy.c     <- your firmware: ~200 lines, a 4-voice sine. Start here.
-firmware/src/platform.c   <- the plumbing (boot, USB, updates, audio ISR, settings). Done; read it, don't fight it.
-firmware/src/*.c, hal/    <- Felucca's platform, as SLOOP carries it, unchanged
-```
 
-Dinghy is based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita (Hügelton Instruments), with its
-platform as [SLOOP](https://github.com/isod89/sloop-fm1) (isod89) carries it: it keeps that platform and throws away the
-rest. The smallest boat of the family, after the felucca and the sloop.
+Back to any other firmware, or to the official one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in
+Chrome or Edge: fm1-dock answers the hub's updater like every firmware there. Installing a new fm1-dock keeps your
+deployed modules, settings and presets. Installing firmware is at your own risk.
 
-<p align="center"><img src="docs/screen.png" width="240" alt="Dinghy's screen: the name, the note played, a keyboard with the keys that sound"></p>
-
-> **Status: 0.3, runs on the FM-1.** Tested on the device: the install, MIDI in (pitch exact, 4 voices), USB audio
-> at 44.1 / 48 kHz, the keys, the screen, the octave kept in flash, and back to another firmware through the hub.
-
-## What you get
+## Play it
 
 | | |
 | --- | --- |
-| **Updates that always work** | `tools/fm1_install.py`, the web installers and the [FM-1 Firmware Hub](https://fm1.designburgapps.com) reach your firmware over USB, so you (and your users) can always install the next build, or go back to the official firmware. |
-| **USB rescue** | Hold **OCT-** while switching on: no sound, only the updater. If your firmware crashes twice at boot, the FM-1 goes there by itself. |
-| **USB-MIDI** | In and out, class compliant: `midi_get()`, `midi_send()`. |
-| **USB audio** | The FM-1 shows up as a 16-bit stereo audio input (44.1 or 48 kHz): record it into any DAW or phone. Nothing to do. |
-| **Panel** | 27 keys, 14 buttons, 7 encoders, the MASTER knob, the LEDs, by name (`BTN_PLAY`, `ENC_KNOB1`, ...). |
-| **Screen** | 240 x 240, text in two sizes, rectangles, lines, pixels. |
-| **Settings** | `settings_load()` / `settings_save()`: up to 256 bytes with a CRC in their own flash sector. |
-| **A crash screen** | A fault shows where it happened (the PC), then the FM-1 restarts. |
-| **Host mode** | The same `dinghy.c` on your computer: the screen as an image, the sound as a WAV. No FM-1 needed to try an idea. |
-| **Checks** | The build fails on what bricks or breaks an FM-1 firmware: a 64-bit division, a call into the chip ROM, too much RAM, a register touched outside `hal/`. |
+| **HOME** | the picker (a module that owns the whole panel: hold HOME alone for 1.5 s) |
+| **SELECT / PRESETS** | move in the picker; **PLAY**, **SEL** or **HOME** load the module |
+| **OCT+ at power-on** | safe start: the sine only |
+| **OCT− at power-on** | the USB rescue: no sound, only the updater |
 
-## Build your own
+fm1-dock starts whatever played last. A module that crashes twice in a row is skipped at boot until you pick it again;
+one that renders slower than real time is stopped and the sine plays, so USB and the updater keep working.
 
-From nothing to your own firmware on the FM-1, step by step. Each step works before you go to the next.
+## Your own module
 
-### 1. Copy it
+A module is a table of functions (`render`, `note`, `ui`, `draw`, ...) at the start of its image; it links against
+nothing of the host's, and the host checks its header, ABI and CRC before anything of it runs. Start from
+[modules/sine/sine.c](modules/sine/sine.c) (about 150 lines); [firmware/harbor/hb_module.h](firmware/harbor/hb_module.h)
+has every call the host gives it.
 
-On GitHub: **Use this template** (top right on this page) or fork it, then clone your copy. Rename nothing yet:
-first make sure the unchanged Dinghy builds on your machine.
+```sh
+python3 tools/hbmod.py modules/mysynth                                   # -> build/modules/MYSYNTH.hrbr
+uv run --with python-rtmidi tools/harbor.py deploy build/modules/MYSYNTH.hrbr   # into the FM-1, running
+uv run --with python-rtmidi tools/harbor.py modules | logs | select NAME | delete NAME
+```
 
-### 2. Set up once
+Or drop the `.hrbr` on the [console](https://joakimeriksson.github.io/fm1-dock/#console). A module has 272 KiB of RAM,
+16 KiB of RAM code, a settings record and flash banks for presets; a deploy file is up to 272 KiB.
 
-You need Linux on x86-64 (or macOS / Windows with Docker or WSL), Python 3 with Pillow, the JieLi toolchain
-and three files of the JieLi AC79 SDK:
+**Probes** measure the real chip: a small C program run once from RAM inside fm1-dock, its result back as JSON, the
+same probe in [fm1-emu](https://github.com/joakimeriksson/fm1-emu) for comparison:
+
+```sh
+tools/probe.py run probes/timing.c --on emu,fm1
+```
+
+## Build it
+
+You need Linux on x86-64 (or macOS / Windows with Docker or WSL), Python 3 with Pillow, the JieLi toolchain and three
+files of the JieLi AC79 SDK:
 
 ```sh
 pip3 install Pillow mido python-rtmidi
 tools/get_toolchain.sh                      # JieLi's clang for the chip, to ~/.jieli/toolchain
 git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
     https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK
+./build.sh --modules cs1,scintilla,obervave   # -> build/harbor.fwsc (fails on what would brick the FM-1)
 ```
 
-On macOS the build runs the toolchain in a `linux/amd64` Docker container by itself (have Docker running).
-`JIELI_TOOLCHAIN` and `AC79_SDK` point elsewhere if your copies live somewhere else.
-
-### 3. Hear it without an FM-1
+In the emulator, without an FM-1 (the same package, and with `--flash` the same flash: deployed modules included):
 
 ```sh
-tests/run_host.sh                           # -> build/host/dinghy.wav and screen PNGs
+fm1-live --fwsc build/harbor.fwsc --flash flash.bin
+tools/harbor.py emu --fwsc build/harbor.fwsc --deploy fm1sid.hrbr --ms 6000
 ```
 
-Host mode runs the same `dinghy.c` on your computer: the sound as a WAV, the screen as images. Most ideas can be
-tried here first, in seconds.
+The platform underneath is Dinghy's: [docs/API.md](docs/API.md) (everything `platform.c` gives), [docs/RULES.md](docs/RULES.md)
+(the chip's rules and what the build checks), [docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md).
 
-### 4. Your first change
+## Credits
 
-Open [firmware/src/dinghy.c](firmware/src/dinghy.c) (~200 lines). The sound is `app_audio()`: it gets an empty
-buffer of stereo frames and adds to it. Make the sine a square:
+fm1-dock, FM-1 SID and Scintilla: Joakim Eriksson. OberVave: zvenson. CS-1: twochannels. reSID: Dag Lem.
+fm1-dock stands on [Dinghy](https://github.com/zvenson/dinghy) (zvenson), on the platform of
+[Felucca](https://github.com/hugelton/Felucca) (Leo Kuroshita, Hügelton Instruments) as [SLOOP](https://github.com/isod89/sloop-fm1)
+(isod89) carries it. The keys' force sensing comes from Velo, by way of CS-1.
 
-```c
-s = ((int32_t)ph < 0 ? 8000 : -8000) * amp >> 15;     /* instead of s = (sine(ph) * amp) >> 15; */
-```
-
-Run `tests/run_host.sh` again and listen to `build/host/dinghy.wav`. The screen is drawn in `app_main()`, the keys
-are read there too: change the text, add a knob ([docs/API.md](docs/API.md) has every call).
-
-### 5. Onto the FM-1
-
-```sh
-./build.sh                                       # -> build/dinghy.fwsc (fails on what would brick the FM-1)
-python3 tools/fm1_install.py build/dinghy.fwsc   # over USB; asks before it writes, restarts into your build
-python3 tools/fm1_install.py --info              # what runs on the connected FM-1
-```
-
-That is the whole loop: change, hear it on the host, build, install. Back to another firmware, or to the official
-one, with the [FM-1 Firmware Hub](https://fm1.designburgapps.com) in Chrome or Edge: Dinghy (and every copy of it)
-answers the hub's updater like every firmware there. Installing firmware is at your own risk.
-
-### 6. When it goes wrong
-
-- **It crashes:** the screen shows where (the PC), then the FM-1 restarts. Twice at boot and it goes to the
-  USB rescue by itself.
-- **It won't start at all:** hold **OCT-** while switching on: the USB rescue, no sound, only the updater. Install
-  a working build (or another firmware from the hub) from there.
-- **The build refuses:** it checks for a 64-bit division, a call into the chip ROM, too much RAM, a register touched
-  outside `hal/`. [docs/RULES.md](docs/RULES.md) says why each one matters; read it before your first crash.
-
-### 7. Make it yours, release it, get into the hub
-
-Your name and logo, your own package identity (so the FM-1 and the installers tell your firmware from Dinghy),
-a GitHub release with the `.fwsc`, and how to get listed next to the others in the
-[FM-1 Firmware Hub](https://fm1.designburgapps.com): **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**.
-
-## Where to go next
-
-- **[docs/API.md](docs/API.md)**: everything `platform.c` gives you, with the panel's ids, the screen calls, the
-  audio contract, MIDI, settings, the flash map, timing.
-- **[docs/MAKE-IT-YOURS.md](docs/MAKE-IT-YOURS.md)**: turn Dinghy into your firmware: the name, the package
-  identity, releases, getting into the FM-1 Firmware Hub.
-- **[docs/RULES.md](docs/RULES.md)**: the chip's rules (no FPU, no libgcc, the audio ISR's budget) and what the build
-  checks for you. Read it before your first crash, not after.
-
-## License
-
-GPL-3.0-only, as Felucca and SLOOP: you may change and share it, and whoever gets your firmware gets its source.
-Details, credits and third-party parts in [LICENSING.md](LICENSING.md).
-
-The platform is Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments, with SLOOP's changes (isod89).
-Dinghy (the app, the host mode, the docs) by zvenson.
+GPL-3.0-only: you may change and share it, and whoever gets your firmware gets its source. Details and third-party
+parts in [LICENSING.md](LICENSING.md). Not affiliated with M-VAVE.
