@@ -441,7 +441,21 @@ static void h_cv_blit(int32_t x, int32_t y)
     if (x >= 0 && y >= 0 && x + (int32_t)cv_w <= 240 && y + (int32_t)cv_h <= 240)
         cv_blit((uint32_t)x, (uint32_t)y);
 }
-static void h_led(uint32_t id, uint32_t on) { if (id < 41u) fm1_led_key(id, (int)on); }
+static void h_led(uint32_t id, uint32_t on)   /* on: 0 off, 1 lit, 2 the glow (hal/fm1_input.h's fm1_led_dim) */
+{
+    uint32_t p, r;
+    if (id >= 41u)
+        return;
+    fm1_led_key(id, on == 1u);
+    for (p = 0; p < FM1_NCOL; p++)
+        for (r = 1; r < 5u; r++)
+            if (FM1_KEYMAP[r][p] == (int8_t)id) {
+                if (on == 2u)
+                    fm1_led_dim[p] |= (uint8_t)(1u << r);
+                else
+                    fm1_led_dim[p] &= (uint8_t)~(1u << r);
+            }
+}
 static uint32_t h_rand(void) { return rng(); }
 static void h_midi_send(uint32_t st_, uint32_t d1, uint32_t d2) { midi_send(st_, d1, d2); }
 static uint32_t h_master(void) { return (uint32_t)master_q12; }
@@ -474,6 +488,18 @@ static int in_mod_ram(const void *p, uint32_t n)   /* (the flash driver reads it
     uint32_t a = (uint32_t)p;
     return a >= HB_MOD_RAM && n <= HB_MOD_RAM_SIZE && a - HB_MOD_RAM <= HB_MOD_RAM_SIZE - n;
 }
+/* a module's banks beyond its first (index 1 up: hb_host_t.bank_load_n): keys of their own, derived
+ * from the module's; a bank is owned when its key is a module's here or one derived from it */
+#define BANK_IDX_TAG 0x5B000000u
+static uint32_t bank_key(uint32_t idx) { return idx ? (mods[cur].key ^ (BANK_IDX_TAG | (idx & 0xFFFFu))) : mods[cur].key; }
+static int bank_owned(uint32_t k)
+{
+    uint32_t m;
+    for (m = 0; m < n_mods; m++)
+        if (k == mods[m].key || ((k ^ mods[m].key) & 0xFFFF0000u) == BANK_IDX_TAG)
+            return 1;
+    return 0;
+}
 static int h_bank_load(void *p, uint32_t n)
 {
     uint32_t h[4], at;
@@ -487,24 +513,21 @@ static int h_bank_load(void *p, uint32_t n)
     hb_log_u32("bank loaded", cur);
     return 0;
 }
-static int h_bank_save(const void *p, uint32_t n)
+static int bank_save_key(uint32_t key, const void *p, uint32_t n)
 {
-    uint32_t h[4] = {BANK_MAGIC, mods[cur].key, n, 0}, g[4], at, b, m, spare = 0, took;
+    uint32_t h[4] = {BANK_MAGIC, key, n, 0}, g[4], at, b, spare = 0, took;
     int rc;
     if (!flash_ok || n > HB_BANK_MAX || !in_mod_ram(p, n))
         return -1;
     at = bank_find(h[1], g);
     for (b = BANK_LO; !at && b + BANK_SIZE <= BANK_HI; b += BANK_SIZE) {
-        uint32_t owned = 0;
         if (st_read(b, g, 16u))
             continue;
         if (g[0] != BANK_MAGIC) {
             at = b;
             break;
         }
-        for (m = 0; m < n_mods; m++)
-            owned |= g[1] == mods[m].key;
-        if (!owned && !spare)
+        if (!bank_owned(g[1]) && !spare)
             spare = b;
     }
     if (!at && !(at = spare))
@@ -513,15 +536,51 @@ static int h_bank_save(const void *p, uint32_t n)
     if ((rc = fl_erase4k(at, &took)) != 0 || (rc = fl_erase4k(at + 0x1000u, &took)) != 0 ||
         (rc = fl_write(at + 16u, (const uint8_t *)p, n)) != 0)
         return rc;
-    hb_log_u32("bank saved", cur);
+    hb_log_u32("bank saved", key);
     return fl_write(at, (const uint8_t *)h, sizeof h);   /* the header last */
+}
+static int h_bank_save(const void *p, uint32_t n) { return bank_save_key(bank_key(0), p, n); }
+/* bank idx (1..HB_BANK_IDX_MAX): up to n of its bytes into p, their length (all of them, the CRC
+ * right) or -1; n 0: only the length */
+static int h_bank_load_n(uint32_t idx, void *p, uint32_t n)
+{
+    uint32_t h[4], at;
+    if (!flash_ok || !idx || idx > HB_BANK_IDX_MAX || !(at = bank_find(bank_key(idx), h)) || h[2] > HB_BANK_MAX)
+        return -1;
+    if (!n)
+        return (int)h[2];
+    if (n < h[2] || !in_mod_ram(p, h[2]) || st_read(at + 16u, p, h[2]) || crc_upd(0, (const uint8_t *)p, h[2]) != h[3])
+        return -1;
+    return (int)h[2];
+}
+/* bank idx saved (n bytes from p), or given back (n 0: its header erased, free for anyone) */
+static int h_bank_save_n(uint32_t idx, const void *p, uint32_t n)
+{
+    uint32_t h[4], at, took;
+    if (!idx || idx > HB_BANK_IDX_MAX)
+        return -1;
+    if (n)
+        return bank_save_key(bank_key(idx), p, n);
+    if (!flash_ok || !(at = bank_find(bank_key(idx), h)))
+        return 0;
+    return fl_erase4k(at, &took);
+}
+static uint32_t h_bank_free(void)              /* banks a save could still take: unused, or no module's here */
+{
+    uint32_t g[4], b, k = 0;
+    if (!flash_ok)
+        return 0;
+    for (b = BANK_LO; b + BANK_SIZE <= BANK_HI; b += BANK_SIZE)
+        if (!st_read(b, g, 16u) && (g[0] != BANK_MAGIC || !bank_owned(g[1])))
+            k++;
+    return k;
 }
 
 static const hb_host_t HOST = {
     HB_ABI, sizeof(hb_host_t), h_ms, h_ticks, hb_log, hb_log_u32,
     h_fill, h_text, h_cv_begin, cv_rect, cv_line, h_cv_pixel, h_cv_text, h_cv_blit,
     h_led, h_rand, mod_load, mod_save, h_midi_send, h_master, h_blit, h_text_w, h_bank_load, h_bank_save,
-    h_sense_keys, h_key_sense, sense_cfg_set,
+    h_sense_keys, h_key_sense, sense_cfg_set, h_bank_load_n, h_bank_save_n, h_bank_free,
 };
 
 /* ---- the sound: the module renders, the host measures */
@@ -1079,6 +1138,18 @@ static uint32_t boot_commit(uint32_t *key)
  * Nothing is written to flash. The result (NOINIT) outlives a crash or the watchdog: RESULT. */
 static void h_wdt_feed(void) { fm1_wdt_feed(); }
 
+/* The PC limits (hal/fm1_guard.h; Dinghy's startup arms them to the host's own code and .ram_text):
+ * no FM-1 runs an instruction fetched outside both windows (the CPU exception, DBG_MSG bit 12: a
+ * probe from RAM faulted on its first instructions on a real FM-1, 2026-10-24; fm1-emu has the
+ * guard since). So they cover what harbor runs besides itself: window 0 the XIP up to the deployed
+ * modules' end (DP_HI), window 1 RAM code from .ram_text through the modules' (HB_MOD_RT) to ram_hi:
+ * PC_RAM_HI, or while a probe runs its image in RX_BUF. */
+#define PC_RAM_HI (HB_MOD_RT + HB_MOD_RT_SIZE - 1u)
+static void hb_pc_limits(uint32_t ram_hi)
+{
+    fm1_guard_pc(0, FM1_XIP(DP_HI) - 1u, (uint32_t)(uintptr_t)_rt_start, ram_hi);
+}
+
 static uint32_t pr_run(uint32_t id, const uint8_t *arg, uint32_t argn)
 {
     static uint8_t a[HB_PROBE_ARG];
@@ -1132,9 +1203,11 @@ static uint32_t pr_run(uint32_t id, const uint8_t *arg, uint32_t argn)
     hb_log(hb_probe.name);
     hb_probe.state = PR_RUNNING;
     fm1_wdt_feed();
+    hb_pc_limits((uint32_t)img + f->code_size - 1u);   /* (its code may run: RAM up to its end) */
     t0 = fm1_ticks();
     hb_probe.rc = p->run(&hb_probe.c);
     hb_probe.ticks = fm1_ticks() - t0;
+    hb_pc_limits(PC_RAM_HI);
     hb_probe.state = PR_DONE;
     hb_log_u32("probe: done", (uint32_t)hb_probe.rc);
     return D_OK;
@@ -1471,6 +1544,7 @@ static void app_main(void)
     uint8_t held[27] = {0}, press_sent[27] = {0};
     sense_ev_t se;
 
+    hb_pc_limits(PC_RAM_HI);                    /* (the deployed modules' code may run: see there) */
     nv_init();
     if (hb_nv.active && (fm1_boot.p3_rst & 4u)) {   /* the watchdog, with a module running */
         if (hb_nv.active <= HB_SLOTS + 1u && hb_nv.strikes[hb_nv.active - 1u] < 255u)

@@ -91,7 +91,8 @@ typedef struct hb_host {
     void (*cv_pixel)(int32_t x, int32_t y, uint16_t c);
     void (*cv_text)(int32_t x, int32_t y, uint32_t big, const char *s, uint16_t fg);
     void (*cv_blit)(int32_t x, int32_t y);
-    /* LEDs: buttons by id, note keys HB_LED_KEY(k) */
+    /* LEDs: buttons by id, note keys HB_LED_KEY(k); on: 0 off, 1 lit, 2 the glow (a dim light: what
+     * could be pressed; a host before the glow lights it) */
     void (*led)(uint32_t id, uint32_t on);
     uint32_t (*rand)(void);
     /* this module's own settings record (up to 240 bytes), kept in flash when nothing plays */
@@ -115,8 +116,17 @@ typedef struct hb_host {
     uint32_t (*sense_keys)(void);
     int (*key_sense)(uint32_t k, hb_key_sense_t *out);   /* 0: filled */
     void (*sense_set)(uint32_t on, uint32_t drive, uint32_t curve, uint32_t ceil);
+    /* more banks than the first (a module checks size first): bank idx 1..HB_BANK_IDX_MAX, each found by
+     * the module's name and idx, up to HB_BANK_MAX bytes with a CRC (FM-1 SID's songs, a few banks each).
+     * load: up to n bytes into p (in the module's RAM), returns their length, -1 none (n 0: the length
+     * only); save: n bytes from p, n 0 gives the bank back; free: banks a save could still take. The
+     * bank area is 9 banks for every module here: a save may find none (-1) */
+    int (*bank_load_n)(uint32_t idx, void *p, uint32_t n);
+    int (*bank_save_n)(uint32_t idx, const void *p, uint32_t n);
+    uint32_t (*bank_free)(void);
 } hb_host_t;
 #define HB_BANK_MAX 8176u
+#define HB_BANK_IDX_MAX 255u
 
 typedef struct hb_param {
     const char *name;
