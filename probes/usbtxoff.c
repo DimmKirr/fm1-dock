@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* USBTXOFF: does the FM-1's USB transmit DMA need an 8-aligned buffer? harbor's own MIDI out (the path
+/* USBTXOFF: does the FM-1's USB transmit DMA need an 8-aligned buffer? fm1-dock's own MIDI out (the path
  * that delivers every note) sends from ep1tx + an offset for a moment (usb.c's hb_usb_tx_off, back
  * to 0 by itself after 200 ms). Per offset (0, 8, 4, 12): ep1tx's first 16 bytes filled with decoy
  * note-ons (60 + slot), then note 100 + offset sent through midi_send. What tools/probe.py lists:
  * 100 + offset = sent from the address as given; a decoy = read from somewhere else (60 + offset/4
  * rounded down to 8 = 60 or 62); nothing = the packet lost. All notes off at the end.
- * argument: [&ep1tx, &hb_usb_tx_off, &hb_usb_tx_left, &hb_usb_tx_reverts] (build/harbor.syms) */
+ * argument: [&ep1tx, &hb_usb_tx_off, &hb_usb_tx_left, &hb_usb_tx_reverts] (build/fm1-dock.syms) */
 #include "probe.h"
 
 static void wait_ms(hb_probe_ctx_t *c, uint32_t ms)
@@ -29,7 +29,7 @@ static int32_t run(hb_probe_ctx_t *c)
         return -1;
     }
     rv0 = *reverts;
-    wait_ms(c, 100);                           /* (harbor's ack of RUN out of the way) */
+    wait_ms(c, 100);                           /* (fm1-dock's ack of RUN out of the way) */
     for (k = 0; k < 4u; k++) {
         p_irq_off();
         for (i = 0; i < 16u; i++) {

@@ -1,4 +1,4 @@
-/* harbor: OberVave's firmware/src/obervave.c, split by modules/obervave/take.py: do not edit */
+/* fm1-dock: OberVave's firmware/src/obervave.c, split by modules/obervave/take.py: do not edit */
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* OberVave 3.0: an analog-style polysynth for the M-VAVE FM-1 (and the SMK-37) in the spirit of the classic American
  * poly synths of 1979-84. Four tracks, each with its own sound, arpeggiator and sequence, sharing the eight voices; a
@@ -1945,10 +1945,10 @@ static void trk_clear(void)
     m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[seq_trk % NTRK]; m[7] = 0; scat(m, " CLEARED"); say(m);
     dirty_tags = dirty_steps = dirty_page = 1;
 }
-/* harbor: app_main's loop-wide variables, for app_init and app_loop (modules/obervave/take.py) */
+/* fm1-dock: app_main's loop-wide variables, for app_init and app_loop (modules/obervave/take.py) */
 static uint32_t k, i, t_led = 0, t_scope = 0, t_page = 0, t_hdr = 0, leds_q = 1;
 static uint32_t swap_seen = 0, leds_prev = 0xFFFFFFFFu, glow = 0, glow_prev = 0xFFFFFFFFu, t_steps = 0, ticks_seen = 0;
-static void app_init(void)                      /* harbor: app_main up to its loop */
+static void app_init(void)                      /* fm1-dock: app_main up to its loop */
 {
     rnd = 0xC0FFEE42u;
 #if BOARD_SMK37
@@ -2025,7 +2025,7 @@ static void app_init(void)                      /* harbor: app_main up to its lo
     scope_state = 1;
 }
 
-static void app_loop(void)                      /* harbor: a pass of app_main's loop, from the host's draw() */
+static void app_loop(void)                      /* fm1-dock: a pass of app_main's loop, from the host's draw() */
 {
     do {
         uint32_t rel, b, lit = 0, base = (uint32_t)(KEY0 + 12 * set.oct), np = page;

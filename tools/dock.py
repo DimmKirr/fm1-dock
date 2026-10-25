@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""fm1-harbor on the computer.
+"""fm1-dock on the computer.
 
-  tools/harbor.py emu [--bin build/harbor_xip.bin | --fwsc build/harbor.fwsc] [--ms 3000] [--keys SCRIPT]
-                      [--deploy MOD.hrbr [--at MS]] [--flash FLASH.bin] [--out DIR]
+  tools/dock.py emu [--bin build/fm1-dock_xip.bin | --fwsc build/fm1-dock.fwsc] [--ms 3000] [--keys SCRIPT]
+                      [--deploy MOD.dock [--at MS]] [--flash FLASH.bin] [--out DIR]
       runs the firmware in fm1-emu's fm1-live (headless, JIT): DIR/audio.wav, DIR/panel.png
       (the screen at the end), DIR/ram.bin and DIR/log.txt (the host's log, crash record, stats).
       --fwsc boots the package as the FM-1 would (the flash past the image readable: deploys need
       it); --deploy sends a module into the DIN jack at MS (default 1000); --flash: the flash chip
       from the file if it is there, back to it at the end (the next run boots from it)
-  tools/harbor.py log RAM.bin       the host's NOINIT state from a RAM dump (from 0x01C00000)
+  tools/dock.py log RAM.bin       the host's NOINIT state from a RAM dump (from 0x01C00000)
 
-On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/harbor.py ...):
-  tools/harbor.py deploy MOD.hrbr [--port NAME] [--blind]   the module into its flash, then running
+On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/dock.py ...):
+  tools/dock.py deploy MOD.dock [--port NAME] [--blind]   the module into its flash, then running
                                        (a boot firmware, tools/hbboot.py: into the boot slot, then started)
-  tools/harbor.py deploy MOD.hrbr --syx OUT.syx            the same as a SysEx file (send it slowly)
-  tools/harbor.py modules | delete NAME | select NAME | safe | logs   [--port NAME]
+  tools/dock.py deploy MOD.dock --syx OUT.syx            the same as a SysEx file (send it slowly)
+  tools/dock.py modules | delete NAME | select NAME | safe | logs   [--port NAME]
   --blind: no answers (an interface into the DIN jack); the FM-1's screen shows how it went
 
 SCRIPT is fm1-live's FM1_BENCH_KEYS: `ms:id` presses a key / button by id (`ms:id^` releases;
@@ -49,7 +49,7 @@ def live():
 
 
 def nv_addr(ram):
-    syms = SRC / "build" / "harbor.syms"
+    syms = SRC / "build" / "fm1-dock.syms"
     if syms.exists():
         m = re.search(r"^([0-9a-f]{8}) .*\shb_nv$", syms.read_text(), re.M)
         if m:
@@ -61,7 +61,7 @@ def nv_addr(ram):
 def read_log(ram):
     o = nv_addr(ram)
     if o is None or struct.unpack_from("<I", ram, o)[0] != NV_MAGIC:
-        return "no harbor state in this RAM dump"
+        return "no fm1-dock state in this RAM dump"
     (log_w,) = struct.unpack_from("<I", ram, o + 4)
     ring = ram[o + 8:o + 8 + LOG_SIZE]
     if log_w <= LOG_SIZE:
@@ -197,7 +197,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("emu")
-    e.add_argument("--bin", default=str(SRC / "build" / "harbor_xip.bin"))
+    e.add_argument("--bin", default=str(SRC / "build" / "fm1-dock_xip.bin"))
     e.add_argument("--fwsc")
     e.add_argument("--ms", type=int, default=3000)
     e.add_argument("--keys", default="")

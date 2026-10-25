@@ -97,15 +97,15 @@ protected:
   RESID_INLINE reg12 outputNPST();
 
   // Sample data for combinations of waveforms.
-  static const unsigned char wave6581__ST[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
-  static const unsigned char wave6581_P_T[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
-  static const unsigned char wave6581_PS_[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
-  static const unsigned char wave6581_PST[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave6581__ST[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave6581_P_T[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave6581_PS_[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave6581_PST[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
 
-  static const unsigned char wave8580__ST[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
-  static const unsigned char wave8580_P_T[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
-  static const unsigned char wave8580_PS_[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
-  static const unsigned char wave8580_PST[];   // fm1-harbor: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave8580__ST[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave8580_P_T[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave8580_PS_[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
+  static const unsigned char wave8580_PST[];   // fm1-dock: const, 8 bits (flash, 4 KB each)
 
   const unsigned char* wave__ST;
   const unsigned char* wave_P_T;

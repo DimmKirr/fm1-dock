@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""FM-1 SID (a whole firmware, its tunes in its pack) in harbor's boot slot, and CS-1 and Scintilla
+"""FM-1 SID (a whole firmware, its tunes in its pack) in fm1-dock's boot slot, and CS-1 and Scintilla
 deployed as modules beside it (a boot firmware that keeps no flash data: HB_F_BOOT_NODATA), in
 fm1-emu, both ways round:
-  tests/trio_test.py SID.hrbr      (tools/hbboot.py make ... --no-data)
+  tests/trio_test.py SID.dock      (tools/hbboot.py make ... --no-data)
   - each deploy over the DIN jack goes in (HOME held at power-on once the boot firmware is in);
-  - power-on: harbor hands over to FM-1 SID, which plays;
-  - HOME held at power-on: harbor, its list has all three; SELECT CS-1 / SCINTILLA: each plays a key."""
+  - power-on: fm1-dock hands over to FM-1 SID, which plays;
+  - HOME held at power-on: fm1-dock, its list has all three; SELECT CS-1 / SCINTILLA: each plays a key."""
 import shutil
 import sys
 import tempfile
@@ -34,7 +34,7 @@ def deploy_keys(blobs, t0):
 def main():
     sid = Path(sys.argv[1]).read_bytes()
     sid_name = hbmod.parse(sid)[0]["name"]
-    mods = [(SRC / "build" / "modules" / f).read_bytes() for f in ("cs1.hrbr", "scintilla.hrbr")]
+    mods = [(SRC / "build" / "modules" / f).read_bytes() for f in ("cs1.dock", "scintilla.dock")]
     wd = Path(tempfile.mkdtemp(prefix="hb-trio-"))
     try:
         for order in ("boot first", "modules first"):
@@ -58,14 +58,14 @@ def main():
                 bt.check(f"{order}: boot", "deploy: boot firmware at" in log and "deploy failed" not in log,
                          f"{sid_name} in beside them ({len(sid) // 1024} KiB)")
             if order == "boot first":
-                # the module deployed last is the one picked: power-on is harbor's, with it; harbor's
+                # the module deployed last is the one picked: power-on is fm1-dock's, with it; fm1-dock's
                 # list (HOME held 1.5 s), PRESETS to the boot firmware, SEL: picked, stored, a reboot
                 log, go, peak = bt.live(4000, ["2500:21", "3500:21^"], f, wd)
                 ran = log.split("started")[-1].split("\n")[1].split(" ", 1)[-1] if "started" in log else "?"
                 bt.check(f"{order}: last pick", go[1] == 0 and ran in ("CS-1", "SCINTILLA") and peak > 500,
-                         f"power-on after the deploys: harbor stays, with {ran} (peak {peak})")
+                         f"power-on after the deploys: fm1-dock stays, with {ran} (peak {peak})")
                 log, go, peak = bt.live(5500, HOME + ["1500:8", "3300:8^", "3600:e6:-10", "3900:e6:1", "4300:3", "4400:3^"], f, wd)
-                bt.check(f"{order}: pick {sid_name}", "settings saved" in log, "harbor's list, PRESETS to it, SEL: the pick stored, a reboot")
+                bt.check(f"{order}: pick {sid_name}", "settings saved" in log, "fm1-dock's list, PRESETS to it, SEL: the pick stored, a reboot")
             log, go, peak = bt.live(4000, ["2500:21", "3500:21^"], f, wd)
             bt.check(f"{order}: power-on", go[1] == 1 and peak > 500, f"{sid_name} runs (start {go[1]}) and plays (peak {peak})")
             for name in ("CS-1", "SCINTILLA"):

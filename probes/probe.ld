@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* A harbor probe (firmware/harbor/hb_module.h, "Probes"), linked as a module is (tools/hbmod.py:
+/* A fm1-dock probe (firmware/dock/hb_module.h, "Probes"), linked as a module is (tools/hbmod.py:
  * twice, at two bases, for its relocations).
  *   XIP   the image at BASE: the descriptor first, code and constants, then the load images
  *         of .data and .ram_text (the host runs all of it from RAM, where it received it)

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""fm1-harbor in fm1-emu (fm1-live, headless): the host and its modules, end to end.
+"""fm1-dock in fm1-emu (fm1-live, headless): the host and its modules, end to end.
   ./build.sh --no-package && tests/emu_test.py
 Each case runs the firmware with a key / MIDI script and checks the sound and the host's log.
-The slots are looked up by name in build/harbor.bin's table, so the order may change."""
+The slots are looked up by name in build/fm1-dock.bin's table, so the order may change."""
 import os
 import re
 import struct
@@ -18,7 +18,7 @@ sys.path.insert(0, str(SRC / "tools"))
 import hbmod  # noqa: E402
 
 OUT = SRC / "build" / "emu"
-APP = SRC / "build" / "harbor_xip.bin"
+APP = SRC / "build" / "fm1-dock_xip.bin"
 failures = []
 
 
@@ -42,7 +42,7 @@ def pick(name):
 
 
 def run(case, keys, ms, binp=APP):
-    r = subprocess.run([sys.executable, str(SRC / "tools" / "harbor.py"), "emu", "--bin", str(binp), "--ms", str(ms),
+    r = subprocess.run([sys.executable, str(SRC / "tools" / "dock.py"), "emu", "--bin", str(binp), "--ms", str(ms),
                         "--keys", keys, "--out", str(OUT / case)], capture_output=True, text=True)
     if r.returncode:
         raise SystemExit(f"{case}: {r.stderr or r.stdout}")
@@ -77,7 +77,7 @@ def decode_check():
     """every instruction of the host and the modules through the emulator's own decoder (fm1-emu
     --check-decode, next to fm1-live): what it cannot run fails here, not mid-test"""
     emu = Path(os.environ.get("FM1_LIVE", Path.home() / "work/fm1-emu/target/release/fm1-live")).with_name("fm1-emu")
-    for dis in [SRC / "build" / "harbor.dis", *sorted((SRC / "build" / "modules").glob("*/module.dis"))]:
+    for dis in [SRC / "build" / "fm1-dock.dis", *sorted((SRC / "build" / "modules").glob("*/module.dis"))]:
         rows = [(m.group(2).split(), m.group(3).strip()) for m in map(LINE.match, dis.read_text().splitlines())
                 if m and not m.group(3).startswith("<")]
         text = "\n".join("".join(b + (rows[i + 1][0] if i + 1 < len(rows) else ["00", "00"])) for i, (b, _) in enumerate(rows))
@@ -129,7 +129,7 @@ def main():
         img = bytearray(APP.read_bytes())
         at = dict((n, a) for n, a, _ in slots())["SID"]
         img[at - 0x02000000 + 0x1000] ^= 0x40          # a bit in its code
-        bad = SRC / "build" / "harbor_badcrc_xip.bin"
+        bad = SRC / "build" / "fm1-dock_badcrc_xip.bin"
         bad.write_bytes(img)
         s, log = run("bad_crc", pick("SID") + ",1600:14,2000:14^", 2500, bad)
         check("bad_crc", "slot refused" in log and "SID" not in log.split("started")[-1] and peak(s, 1.3, 1.8) > 1000,

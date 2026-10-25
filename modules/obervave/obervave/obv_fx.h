@@ -8,7 +8,7 @@
 #define REV_DIV 1u
 #endif
 #define RVL(x) ((uint32_t)((x) * 44100u / 29761u / REV_DIV))   /* the paper's 29761 Hz lengths at our rate */
-#ifndef DLY_MAX                                  /* harbor: settable (modules/obervave/take.py) */
+#ifndef DLY_MAX                                  /* fm1-dock: settable (modules/obervave/take.py) */
 #define DLY_MAX 32768u                          /* a side of the delay: 743 ms */
 #endif
 #define CHO_N 1024u

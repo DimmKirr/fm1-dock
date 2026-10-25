@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* USBSEND: N note-ons (note 100 + k) and their note-offs through harbor's own MIDI out (midi_send:
+/* USBSEND: N note-ons (note 100 + k) and their note-offs through fm1-dock's own MIDI out (midi_send:
  * its queue, usb.c's ep1_tx from the 2 kHz poll), ms apart: tools/probe.py lists what arrives. The
  * baseline to probes/usbalign.c, which arms EP1 by itself. argument: [n, ms] */
 #include "probe.h"

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build fm1-harbor (on Dinghy, on Felucca / SLOOP's platform): the host, the modules, the update
+"""Build fm1-dock (on Dinghy, on Felucca / SLOOP's platform): the host, the modules, the update
 loader and an installable .fwsc package.
 
-  tools/build.py [--release X.Y[-suffix]] [--modules sine,sid] [--no-package]
+  tools/build.py [--release X.Y[-suffix]] [--modules cs1,scintilla,obervave] [--no-package]
 
-Outputs in build/: harbor.bin (the app: the host, the slot table, the modules), harbor_xip.bin
-(the same as fm1-emu / fm1-live --bin take it), modules/*.hrbr, loader/ota.bin (update loader),
-harbor.fwsc (package; --no-package skips it, and the SDK). See README.md for the toolchain and
+Outputs in build/: fm1-dock.bin (the app: the host, the slot table, the modules), fm1-dock_xip.bin
+(the same as fm1-emu / fm1-live --bin take it), modules/*.dock, loader/ota.bin (update loader),
+fm1-dock.fwsc (package; --no-package skips it, and the SDK). See README.md for the toolchain and
 the SDK.
 
 The JieLi toolchain is Linux x86-64 only. JIELI_TOOLCHAIN points at it; on
@@ -50,7 +50,7 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-PRODUCT = "FM-1_950"                # fm1-harbor: 95N (Dinghy is 99N; OUR_LOADER in the installer wants FM-1_9NN)
+PRODUCT = "FM-1_950"                # fm1-dock: 95N (Dinghy is 99N; OUR_LOADER in the installer wants FM-1_9NN)
 VERSION = None                      # APP_VER for release builds
 
 
@@ -164,25 +164,27 @@ def build_loader():
 
 # ---- app
 
-APP = "harbor"
-SLOT_TABLE = 0x02030000             # firmware/src/harbor.c HB_TABLE_AT (flash 0x34000)
+APP = "fm1-dock"                    # the outputs' name (build/fm1-dock.bin, .fwsc, .syms, ...)
+HOST = "dock"
+PACKAGE = ["cs1", "scintilla", "obervave"]   # the modules in the package (all of modules/ no longer fits its app slot)                       # the host's source: firmware/src/dock.c
+SLOT_TABLE = 0x02030000             # firmware/src/dock.c HB_TABLE_AT (flash 0x34000)
 SLOT_FIRST = SLOT_TABLE + 0x1000
 
 
 def build_app():
-    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/harbor",
+    flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
              f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"']
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
-            ("cc", *flags, "-c", FW / "src" / f"{APP}.c", "-o", OUT / f"{APP}.o"),
+            ("cc", *flags, "-c", FW / "src" / f"{HOST}.c", "-o", OUT / f"{HOST}.o"),
             # the fallback sound: modules/sine as part of the host (its descriptor renamed)
-            ("cc", *CFLAGS, "-Ifirmware/harbor", "-DHB_DESC=const hb_module_t hb_builtin_sine",
+            ("cc", *CFLAGS, "-Ifirmware/dock", "-DHB_DESC=const hb_module_t hb_builtin_sine",
              "-c", SRC / "modules" / "sine" / "sine.c", "-o", OUT / "sine_builtin.o")]
     tc_all(*cmds)
     elf = OUT / f"{APP}.elf"
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
-       OUT / "fm1_isr.o", OUT / f"{APP}.o", OUT / "sine_builtin.o", "-o", elf)
+       OUT / "fm1_isr.o", OUT / f"{HOST}.o", OUT / "sine_builtin.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
@@ -322,7 +324,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_95Y, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
-    ap.add_argument("--modules", help="the modules to pack, in slot order (default: every modules/<dir>)")
+    ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; every "
+                    "other modules/<dir> is built as a .dock to deploy)")
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
     a = ap.parse_args()
     name = f"{APP}.fwsc"
@@ -340,8 +343,8 @@ def main():
                 print(f"warning: SDK {rel} differs from AC79NN_SDK_V1.2.1; the package will not match the reference")
     OUT.mkdir(parents=True, exist_ok=True)
     import hbmod
-    dirs = ([SRC / "modules" / d for d in a.modules.split(",")] if a.modules else
-            sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c"))))
+    every = sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c")))
+    dirs = [SRC / "modules" / d for d in (a.modules or ",".join(PACKAGE)).split(",")]
     ota = build_loader()
     host, syms, dis, rt = build_app()
     errors, notes = check(host, syms, dis, rt)
@@ -356,6 +359,9 @@ def main():
     if errors:
         raise SystemExit("build: checks failed")
     mods = [hbmod.build_module(d) for d in dirs]
+    for d in every:                             # the others as files to deploy (tools/dock.py deploy, the tests)
+        if d not in dirs:
+            hbmod.build_module(d)
     img = pack_slots(host, mods)
     (OUT / f"{APP}.bin").write_bytes(img)
     (OUT / f"{APP}_xip.bin").write_bytes(b"\0" * 0x120 + img)

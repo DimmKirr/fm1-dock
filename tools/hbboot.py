@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""harbor's boot slot (firmware/harbor/hb_module.h): a whole firmware that harbor starts at
-power-on in its place (HOME held at power-on: harbor).
+"""fm1-dock's boot slot (firmware/dock/hb_module.h): a whole firmware that fm1-dock starts at
+power-on in its place (HOME held at power-on: fm1-dock).
 
   tools/hbboot.py relink SRC        a Felucca-family checkout made to run from the slot (its app.ld,
                                     hal/fm1_guard.h, tools/build.py; again: nothing changes)
-  tools/hbboot.py make APP.bin --name FELUCCA [--version 161] [-o OUT.hrbr] [--no-data]
+  tools/hbboot.py make APP.bin --name FELUCCA [--version 161] [-o OUT.dock] [--no-data]
                                     its app.bin (built after relink) as a boot file; --no-data: it
                                     writes no flash outside its slot (FM-1 SID), modules may stay
-  then: tools/harbor.py deploy OUT.hrbr (USB), or into fm1-emu: tools/harbor.py emu --fwsc ... --deploy
+  then: tools/dock.py deploy OUT.dock (USB), or into fm1-emu: tools/dock.py emu --fwsc ... --deploy
 
 A boot firmware has the FM-1 to itself and keeps its own flash areas (Felucca's: 0x97000 up);
-harbor keeps the table and its settings at 0x93000..0x96000, which Felucca leaves alone. Deployed
+fm1-dock keeps the table and its settings at 0x93000..0x96000, which Felucca leaves alone. Deployed
 modules and a boot firmware exclude each other: the modules' flash is the boot firmware's data,
 unless it keeps none (--no-data)."""
 import argparse
@@ -84,7 +84,7 @@ def main():
         return
     app = Path(a.app).read_bytes()
     blob = make(app, a.name, a.version, a.no_data)
-    out = Path(a.out or Path(a.app).with_suffix(".boot.hrbr"))
+    out = Path(a.out or Path(a.app).with_suffix(".boot.dock"))
     out.write_bytes(blob)
     h, _, _ = hbmod.parse(blob)
     print(f"boot {a.name}: {out}, {len(app)} B at XIP {XIP:#010x}, crc {h['crc']:08x}; "

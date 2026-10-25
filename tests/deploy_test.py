@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""fm1-harbor's deploys in fm1-emu: modules sent into the DIN jack of the booted package (fm1-live
+"""fm1-dock's deploys in fm1-emu: modules sent into the DIN jack of the booted package (fm1-live
 --fwsc, --flash: the flash chip kept between runs, FM1_FLASH_CUT: a power cut half way through
 the Nth erase / program).
   ./build.sh && tests/deploy_test.py [--cuts all|N]
@@ -24,12 +24,12 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC / "tools"))
-import harbor  # noqa: E402
+import dock  # noqa: E402
 import hbdeploy  # noqa: E402
 import hbmod  # noqa: E402
 
-FWSC = SRC / "build" / "harbor.fwsc"
-SINE = SRC / "build" / "modules" / "sine.hrbr"
+FWSC = SRC / "build" / "fm1-dock.fwsc"
+SINE = SRC / "build" / "modules" / "sine.dock"
 DT = (0x93000, 0x94000)
 NOTE = 21                                       # C4's key (14 + 7)
 failures = []
@@ -60,11 +60,11 @@ def live(mode, ms, keys, flash, cut=None):
         ram = Path(wd) / "ram.bin"
         if mode == "shot":
             env["FM1_DUMPRAM"] = str(ram)
-        r = subprocess.run([str(harbor.live()), "--fwsc", str(FWSC), f"--{mode}", str(ms), "--flash", str(flash)],
+        r = subprocess.run([str(dock.live()), "--fwsc", str(FWSC), f"--{mode}", str(ms), "--flash", str(flash)],
                            cwd=wd, capture_output=True, text=True, env=env)
         if r.returncode or "halt" in r.stdout + r.stderr:
             raise SystemExit(f"fm1-live: {r.stdout[-2000:]}{r.stderr[-2000:]}")
-        return r.stdout, harbor.read_log(ram.read_bytes()) if mode == "shot" else None
+        return r.stdout, dock.read_log(ram.read_bytes()) if mode == "shot" else None
 
 
 def ops(out):
@@ -192,7 +192,7 @@ def main():
         if r.returncode:
             raise SystemExit(f"hbmod tests/modules/slow: {r.stdout}{r.stderr}")
         f5 = wd / "f5.bin"
-        keys, done = deploy_keys((SRC / "build" / "modules" / "slow.hrbr").read_bytes())
+        keys, done = deploy_keys((SRC / "build" / "modules" / "slow.dock").read_bytes())
         t = int(done) + 300
         out, log = live("shot", t + 3000, keys + [f"{t}:{NOTE}", f"{t + 1800}:{NOTE}^", f"{t + 2300}:{NOTE + 2}"], f5)
         stop = [int(ln.split()[0]) for ln in log.splitlines() if "too slow: stopped" in ln]
@@ -201,7 +201,7 @@ def main():
               "the sine plays the next key")
 
         # a module's bank: CS-1's user presets, there after a reboot
-        img = (SRC / "build" / "harbor.bin").read_bytes()
+        img = (SRC / "build" / "fm1-dock.bin").read_bytes()
         names = []
         for i in range(32):
             magic, at, size, crc = struct.unpack_from("<IIII", img, 0x30000 - 0x120 + 16 * i)

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* What OberVave's platform.c (Dinghy's) gives its obervave.c, on the harbor host: copied to
+/* What OberVave's platform.c (Dinghy's) gives its obervave.c, on the fm1-dock host: copied to
  * obervave/platform.c by take.py, where obervave.c includes it (.inc here: not a module source). The panel, the time and MIDI
  * (modules/lib/hb_fm1.h); the LEDs, lit and the glow (hb_host_t.led 1 / 2); the screen: OberVave's
  * own gfx.c (its canvas and font) onto the host's fill and blit; the storage on the host's: the

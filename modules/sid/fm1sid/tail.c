@@ -1,4 +1,4 @@
-/* ----------------------------------------------------------------- harbor: the module --- */
+/* ----------------------------------------------------------------- fm1-dock: the module --- */
 static void block_wait(void)                /* the audio block that may be running ends */
 {
     uint32_t b = blocks, t0 = H->ms();
@@ -31,7 +31,7 @@ static void draw_step(uint32_t full)        /* FM-1 SID's main loop, once */
 {
     uint32_t rel, e, now = fm1_ms;
     e = fm1_input_edges(&rel);
-    e &= ~(1u << 8);                        /* harbor: HOME (the player) is not here */
+    e &= ~(1u << 8);                        /* fm1-dock: HOME (the player) is not here */
     if (e & (1u << 2))                      /* FX: the effects page */
         fx_view = !fx_view;
     if (fx_view && fx_keys()) {             /* (its encoders are the page's) PRESETS: the chip */
@@ -66,7 +66,7 @@ static int init(const hb_host_t *h)
     uint32_t i;
     H = h;
     start_synth();
-    for (i = 0; i < 32u; i++)               /* harbor: 0.19 s of the chip unheard (the ISR does not run it yet): */
+    for (i = 0; i < 32u; i++)               /* fm1-dock: 0.19 s of the chip unheard (the ISR does not run it yet): */
         render_resid(pre);                  /* its DC settles behind reSID's output filter, no click at the start */
     play_cyc = 0;
     H->log("sid: FM-1 SID's synth, reSID 0.16");

@@ -59,11 +59,11 @@ function ports() {
   const sel = $("c-port"), keep = sel.value;
   sel.innerHTML = "";
   for (const o of outs) sel.add(new Option(o.name, o.id));
-  const want = outs.find((o) => o.id === keep) || outs.find((o) => /felucca|harbor|dock|fm-?1/i.test(o.name)) || outs[0];
+  const want = outs.find((o) => o.id === keep) || outs.find((o) => /felucca|fm1-dock|dock|fm-?1/i.test(o.name)) || outs[0];
   if (!want) { sel.add(new Option("no MIDI outputs")); sel.disabled = true; return null; }
   sel.value = want.id;
   sel.disabled = false;
-  const inp = ins.find((i) => i.name === want.name) || ins.find((i) => /felucca|harbor|dock|fm-?1/i.test(i.name));
+  const inp = ins.find((i) => i.name === want.name) || ins.find((i) => /felucca|fm1-dock|dock|fm-?1/i.test(i.name));
   return inp ? { out: want, inp } : null;
 }
 
@@ -251,8 +251,8 @@ $("c-probe-file").onchange = probeFile;
 $("c-probe-run").onclick = runProbe;
 for (const b of document.querySelectorAll("[data-probe]")) {   // the probes this page carries (docs/probes/, fm1-dock's ABI 2)
   b.onclick = async () => {
-    const r = await fetch(`probes/${b.dataset.probe}.hrbr`);
-    if (!r.ok) { $("c-probe-out").textContent = `probes/${b.dataset.probe}.hrbr: ${r.status}`; return; }
+    const r = await fetch(`probes/${b.dataset.probe}.dock`);
+    if (!r.ok) { $("c-probe-out").textContent = `probes/${b.dataset.probe}.dock: ${r.status}`; return; }
     await probeFile({ name: b.dataset.probe, blob: new Uint8Array(await r.arrayBuffer()) });
     if (probeBlob) runProbe();
   };
@@ -276,7 +276,7 @@ for (const l of document.querySelectorAll(".file")) {
   for (const ev of ["dragleave", "drop"]) l.addEventListener(ev, () => l.classList.remove("drag"));
 }
 
-// the flash map (flash offsets; firmware/src/harbor.c)
+// the flash map (flash offsets; firmware/src/dock.c)
 const FLASH = [
   [0x000000, 0x004000, "boot and the package header", "other"],
   [0x004000, 0x034000, "fm1-dock (the host)", "upd"],

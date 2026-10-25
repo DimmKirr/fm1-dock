@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* SINE: Dinghy's 4-voice sine as a module. The host also builds this file in as its fallback
- * (firmware/src/harbor.c, with HB_DESC set), so a module that fails always leaves a sound.
+ * (firmware/src/dock.c, with HB_DESC set), so a module that fails always leaves a sound.
  *   keys / MIDI   4 voices, the velocity sets the level
  *   KNOB1         attack, KNOB2 release */
 #include "hb_module.h"

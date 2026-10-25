@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* fm1-harbor: one firmware for the FM-1, installed once; the synths are modules in flash slots
- * (firmware/harbor/hb_module.h). This file is the host, on Dinghy's platform (platform.c):
+/* fm1-dock: one firmware for the FM-1, installed once; the synths are modules in flash slots
+ * (firmware/dock/hb_module.h). This file is the host, on Dinghy's platform (platform.c):
  *
  *   slots      the slot table (flash 0x34000) lists the modules; each is checked (header, ABI,
  *              CRC, sizes) before anything of it runs. The built-in sine is always there.
@@ -10,12 +10,12 @@
  *              the watchdog) twice is skipped at boot until it is picked again. A module's crash
  *              does not count towards Dinghy's boot guard (the host is fine).
  *   debug      a log ring, the crash record and the render stats in NOINIT (they survive the
- *              reset): tools/harbor.py log reads them from a RAM dump.
+ *              reset): tools/dock.py log reads them from a RAM dump.
  *   playing    the keys (OCT- / OCT+ the octave), USB-MIDI and the DIN MIDI jack go to the module;
  *              the other buttons and the encoders go to its ui().
  *   settings   one flash sector: the host's (the module, the octave) and a record per module; each
  *              module's bank (8 KiB, by its name) for its user presets.
- *   deploys    a module sent over SysEx (tools/harbor.py deploy) goes into flash of its own, never
+ *   deploys    a module sent over SysEx (tools/dock.py deploy) goes into flash of its own, never
  *              the host's: received whole and checked first, the table written last (see below).
  *   keys       the bottom two rows' force is sensed (Velo's sense.c, by way of CS-1, in the key
  *              scan): they play with the velocity they land at, report their pressure while held.
@@ -24,11 +24,11 @@
  *   probes     a program sent as a deploy is, but run once from RAM (RUN) to measure or test, its
  *              result kept through a crash (RESULT): tools/probe.py. Nothing goes into flash.
  *   boot slot  a whole firmware (Felucca, ...; tools/hbboot.py) deployed above the host: at
- *              power-on harbor hands the FM-1 over to it before its own screen, USB and audio
- *              start (HOME held: harbor stays; two starts without a power cycle between: harbor
+ *              power-on fm1-dock hands the FM-1 over to it before its own screen, USB and audio
+ *              start (HOME held: fm1-dock stays; two starts without a power cycle between: fm1-dock
  *              stays). It is written as an update writes, encrypted with the chip key. One that
  *              keeps no flash data (HB_F_BOOT_NODATA: FM-1 SID) leaves the deployed modules in. */
-#define APP_NAME "HARBOR"
+#define APP_NAME "FM1-DOCK"
 #define CV_MAX (240u * 96u)
 #define APP_FAULT_HOOK hb_fault
 #define APP_EARLY_INIT hb_early_init
@@ -783,7 +783,7 @@ static uint32_t find_key(uint32_t k)
     return 0;
 }
 
-/* ---- deploys: a module file (tools/hbmod.py's .hrbr) sent over SysEx, USB-MIDI or the DIN jack, into
+/* ---- deploys: a module file (tools/hbmod.py's .dock) sent over SysEx, USB-MIDI or the DIN jack, into
  * flash of its own. What it may write is APP_FL_LO.. (0x93000 up), never the host or the image's
  * modules below it, which only an update writes:
  *   0x93000, 0x94000   the deployed table, two copies: the valid copy with the higher sequence number
@@ -1020,7 +1020,7 @@ static void rx_end(uint32_t status)
 /* ---- a boot firmware's deploy: too big for RX_BUF, so each 4 KiB sector is written as it fills
  * (the chunks in order; over USB each is answered after its sector is written, over DIN the
  * sender pauses: tools/hbdeploy.py). Its table entry goes first, so a cut or a failed transfer
- * leaves no boot firmware, never a broken one: harbor boots. Encrypted as the updater writes
+ * leaves no boot firmware, never a broken one: fm1-dock boots. Encrypted as the updater writes
  * the app area: SFC, per 32 bytes, the chip key ^ (offset in the area / 4). */
 static int chip_key(uint32_t *key)              /* as the loader's ldr_chip_key: the isd_config blob */
 {
@@ -1141,7 +1141,7 @@ static void h_wdt_feed(void) { fm1_wdt_feed(); }
 /* The PC limits (hal/fm1_guard.h; Dinghy's startup arms them to the host's own code and .ram_text):
  * no FM-1 runs an instruction fetched outside both windows (the CPU exception, DBG_MSG bit 12: a
  * probe from RAM faulted on its first instructions on a real FM-1, 2026-10-24; fm1-emu has the
- * guard since). So they cover what harbor runs besides itself: window 0 the XIP up to the deployed
+ * guard since). So they cover what fm1-dock runs besides itself: window 0 the XIP up to the deployed
  * modules' end (DP_HI), window 1 RAM code from .ram_text through the modules' (HB_MOD_RT) to ram_hi:
  * PC_RAM_HI, or while a probe runs its image in RX_BUF. */
 #define PC_RAM_HI (HB_MOD_RT + HB_MOD_RT_SIZE - 1u)
@@ -1203,7 +1203,8 @@ static uint32_t pr_run(uint32_t id, const uint8_t *arg, uint32_t argn)
     hb_log(hb_probe.name);
     hb_probe.state = PR_RUNNING;
     fm1_wdt_feed();
-    hb_pc_limits((uint32_t)img + f->code_size - 1u);   /* (its code may run: RAM up to its end) */
+    hb_pc_limits(HB_MOD_RAM + HB_MOD_RAM_SIZE - 1u);   /* (a probe may run code anywhere in its RAM: EXEC runs
+                                                 * the instructions it was sent from its .bss) */
     t0 = fm1_ticks();
     hb_probe.rc = p->run(&hb_probe.c);
     hb_probe.ticks = fm1_ticks() - t0;
@@ -1482,12 +1483,12 @@ static uint32_t deploy_tick(void)               /* the main loop's: a frame, the
  * it but for what its own start sets again anyway (vectors, interrupts, watchdog, GPIO), and r0,
  * the SPL's boot-parameter pointer. It starts when it is the selected one, checks out (header,
  * CRC through the SFC) and no key is held. A counter in NOINIT, cleared by a power-on, keeps
- * harbor from handing over a third time without one: a boot firmware that crashes or hangs at
- * start lands in harbor's menu, not in a loop. */
+ * fm1-dock from handing over a third time without one: a boot firmware that crashes or hangs at
+ * start lands in fm1-dock's menu, not in a loop. */
 static volatile uint32_t GO[2] __attribute__((section(".hbgo")));   /* [magic, starts], app.ld: above a boot firmware's
                                                  * NOINIT (Felucca's ends at 0x01C7FCD0), below the SPL's area */
 #define GO_MAGIC 0x4F474248u                    /* "HBGO" */
-static uint32_t boot_why;                       /* why harbor stayed: 1 a key held, 2 started twice, 3 it fails its check */
+static uint32_t boot_why;                       /* why fm1-dock stayed: 1 a key held, 2 started twice, 3 it fails its check */
 static void hb_boot_now(void)                   /* the boot firmware is the selected one: a reboot hands over */
 {
     GO[0] = GO_MAGIC;
@@ -1517,7 +1518,7 @@ static void hb_boot_hook(uint32_t p3)
         fm1_input_scan();
     } while ((uint32_t)(fm1_ticks() - t0) < 50u * 1000u * FM1_TICKS_PER_US);
     if (fm1_in.buttons & (1u << BTN_HOME | 1u << BTN_OCT_DOWN | 1u << BTN_OCT_UP)) {
-        boot_why = 1;                           /* HOME: harbor; OCT- the rescue; OCT+ the safe boot */
+        boot_why = 1;                           /* HOME: fm1-dock; OCT- the rescue; OCT+ the safe boot */
         return;
     }
     if (GO[1] >= 2u) { boot_why = 2; return; }
@@ -1560,7 +1561,7 @@ static void app_main(void)
             bootguard.failed--;
     }
     hb_nv.active = 0;
-    hb_log_u32("harbor " APP_VER " boot, reset", fm1_boot.p3_rst);
+    hb_log_u32("fm1-dock " APP_VER " boot, reset", fm1_boot.p3_rst);
     if (hb_nv.crash.magic == CRASH_MAGIC)
         hb_log_u32("last crash pc", hb_nv.crash.pc);
 
@@ -1581,7 +1582,7 @@ static void app_main(void)
     if (safe)
         hb_log("safe boot (OCT+): the sine only");
     k = safe ? 0 : find_key(st.sel_key);
-    if (k && mods[k].kind == K_BOOT) {          /* the boot firmware is the one, but harbor stayed: the sine */
+    if (k && mods[k].kind == K_BOOT) {          /* the boot firmware is the one, but fm1-dock stayed: the sine */
         hb_log_u32("boot firmware not started", boot_why);
         k = 0;
     }

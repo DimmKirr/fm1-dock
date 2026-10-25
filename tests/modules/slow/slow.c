@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* SLOW: a test module (tests/deploy_test.py) whose render takes one and a half blocks once a key is
- * down: slower than real time, which the host must stop (harbor.c, overload) and play the sine. */
+ * down: slower than real time, which the host must stop (dock.c, overload) and play the sine. */
 #include "hb_module.h"
 
 static const hb_host_t *H;

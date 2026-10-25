@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Velo's key sensing (Charles Vestal, github.com/charlesvestal/fm1-velocity, GPL-3.0) as CS-1 carries
  * it (github.com/twochannels/CS-1 4e0ebe3, firmware/src/sense.c, its velocity map in fixed point),
- * unchanged but for the tables' include: harbor's key scan senses the keys' force for every module. */
+ * unchanged but for the tables' include: fm1-dock's key scan senses the keys' force for every module. */
 /* Velocity sensing from the key's contact resistance.
  *
  * Each key on the two analog rows is sampled every ~2.2 ms (fm1_input.h): the ADC reading of

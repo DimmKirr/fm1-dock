@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* What CS-1's platform.c (on Dinghy's) gives its cs1.c, on the harbor host: the panel, the time
+/* What CS-1's platform.c (on Dinghy's) gives its cs1.c, on the fm1-dock host: the panel, the time
  * and MIDI (modules/lib/hb_fm1.h), the screen calls (the host's canvas and font, the same as
  * gfx.c's), the settings record and the user presets' bank, the block, and the keys' sensing:
  * CS-1's own sense.c (Velo's, charlesvestal/fm1-velocity) runs in the host's key scan
