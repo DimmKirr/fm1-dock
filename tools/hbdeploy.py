@@ -19,8 +19,9 @@ import zlib
 MAN = bytes([0x7D, 0x48, 0x42])                 # 7D: non-commercial; "HB"
 HELLO, LIST, BEGIN, DATA, COMMIT, ABORT, DELETE, LOG, SAFE, SELECT = 0x01, 0x02, 0x10, 0x11, 0x12, 0x13, 0x14, 0x20, 0x21, 0x22
 RUN, RESULT = 0x30, 0x31                       # probes (tools/probe.py): RUN in place of COMMIT, from RAM
+MODULE = 0x23                                  # a payload for the module playing (its data(): FM-1 SID takes a tune)
 STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed", "data missing",
-          "not started", "not found", "bad message"]
+          "not started", "not found", "bad message", "refused"]
 STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"]
 KIND = ["built in", "image", "deployed", "boot"]
 CHUNK = 256
@@ -181,6 +182,20 @@ class Port:
                 if c == cmd or c == 0x3F:
                     return d
         raise SystemExit(f"no answer from the FM-1 (cmd {cmd:#04x}): is fm1-dock running, the port right?")
+
+
+def send_file(p, blob, arg=0, chunk=CHUNK):
+    """a file to the module playing, in MODULE frames (hb_module.h, "a file to a module"): B [size][arg],
+    D [at][bytes] in order, E. Nothing is written to flash; the module takes it as it arrives.
+    Returns None when it was taken, else (the step, the reply)"""
+    steps = [b"B" + struct.pack("<II", len(blob), arg)]
+    steps += [b"D" + struct.pack("<I", at) + blob[at:at + chunk] for at in range(0, len(blob), chunk)]
+    steps.append(b"E")
+    for st in steps:
+        d = p.ask(MODULE, st)
+        if not d or d[0] != 0:
+            return chr(st[0]), d
+    return None
 
 
 def status(d):
