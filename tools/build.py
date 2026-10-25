@@ -27,6 +27,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -173,26 +174,31 @@ HOST = "dock"
 PACKAGE = ["cs1", "scintilla", "obervave"]   # the modules in the package (all of modules/ no longer fits its app slot)                       # the host's source: firmware/src/dock.c
 SLOT_TABLE = 0x02030000             # firmware/src/dock.c HB_TABLE_AT (flash 0x34000)
 SLOT_FIRST = SLOT_TABLE + 0x1000
+HX_XIP = 0x02084000                 # firmware/src/ble/hx.h HX_AT (flash 0x88000): BLE-MIDI, a unit of its own
+HX_SIZE = 0xA000
 
 
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
              f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"', *(["-DHB_BOOT_SLOT=1"] if BOOT_SLOT else []),
-             *([f'-DAPP_NAME="{APP_NAME}"'] if APP_NAME else [])]
+             *([f'-DAPP_NAME="{APP_NAME}"'] if APP_NAME else []), *(["-DHB_SOLO=1"] if SOLO else [])]
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
             ("cc", *flags, "-c", FW / "src" / f"{HOST}.c", "-o", OUT / f"{HOST}.o"),
+            ("cc", *flags, "-Ifirmware/src/ble", "-c", FW / "src" / "ble" / "hx.c", "-o", OUT / "hx.o"),
             # the fallback sound: modules/sine as part of the host (its descriptor renamed)
             ("cc", *CFLAGS, "-Ifirmware/dock", "-DHB_DESC=const hb_module_t hb_builtin_sine",
              "-c", SRC / "modules" / "sine" / "sine.c", "-o", OUT / "sine_builtin.o")]
     tc_all(*cmds)
     elf = OUT / f"{APP}.elf"
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
-       OUT / "fm1_isr.o", OUT / f"{HOST}.o", OUT / "sine_builtin.o", "-o", elf)
-    for sect in ("text.bin", "data.bin", "ramtext.bin"):
+       OUT / "fm1_isr.o", OUT / f"{HOST}.o", OUT / "hx.o", OUT / "sine_builtin.o", "-o", elf)
+    for sect in ("text.bin", "data.bin", "ramtext.bin", "hx_text.bin", "hx_data.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
+                               ("common/bin/objcopy", "-O", "binary", "-j", ".hx", elf, OUT / "hx_text.bin"),
+                               ("common/bin/objcopy", "-O", "binary", "-j", ".hx_data", elf, OUT / "hx_data.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".data", elf, OUT / "data.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
                                ("common/bin/objdump", "-t", elf),
@@ -217,12 +223,21 @@ def build_app():
             img += blob
     img += b"\xff" * (-len(img) % 4)
     (OUT / "host.bin").write_bytes(img)
-    return bytes(img), syms, dis, rt
+    # HX: its header's size and CRC (src/ble/hx.h; the CRC is dock.c's crc_upd, zlib's)
+    hx = bytearray((OUT / "hx_text.bin").read_bytes())
+    if (OUT / "hx_data.bin").exists():          # its .data's load image, where the linker put it
+        hx += b"\xff" * (symv("_hx_data_load") - HX_XIP - len(hx)) + (OUT / "hx_data.bin").read_bytes()
+    if symv("hx_head") != HX_XIP or symv("_hx_end") != HX_XIP + len(hx) or len(hx) > HX_SIZE:
+        raise SystemExit(f"HX: {len(hx)} B, header at {symv('hx_head'):#x}, end {symv('_hx_end'):#x}: not as hx.h")
+    struct.pack_into("<II", hx, 4, len(hx), zlib.crc32(bytes(hx[16:])))
+    (OUT / "hx.bin").write_bytes(hx)
+    return bytes(img), syms, dis, rt, bytes(hx)
 
 
-def pack_slots(host, modules):
+def pack_slots(host, modules, hx):
+    # (hx empty: tools/build.py --no-ble, HX's flash left erased: the host finds no BLE)
     """the app image: the host, 0xFF up to the slot table, the table, each module in its own 4 KiB
-    aligned slot, relocated to run there (hbmod.move)"""
+    aligned slot, relocated to run there (hbmod.move); HX (BLE-MIDI) at its place at the top"""
     import hbmod
     boot_lo = 0x02000000 + 0x14000 - 0x4000      # hb_module.h HB_BOOT_LO: a boot firmware's first sector
     if APP_XIP + len(host) > boot_lo:
@@ -240,6 +255,10 @@ def pack_slots(host, modules):
         slots += blob + b"\xff" * (-len(blob) % 0x1000)
         print(f"  slot {i}  {at:#010x}  {h['name']:<10} {len(blob):7} B, runs at {h['base']:#010x}")
     img += table + slots
+    if hx and APP_XIP + len(img) > HX_XIP:
+        raise SystemExit(f"the modules end at {APP_XIP + len(img):#x}, in HX at {HX_XIP:#x}")
+    if hx:
+        img += b"\xff" * (HX_XIP - APP_XIP - len(img)) + hx
     if len(img) > APP_SLOT:
         raise SystemExit(f"host + modules: {len(img)} B > the app slot ({APP_SLOT} B)")
     return bytes(img)
@@ -326,16 +345,20 @@ def mmio_check():
 
 BOOT_SLOT = False                   # --boot-slot: the boot slot is in (a developer's build)
 APP_NAME = None                     # --app-name: the crash and rescue screens' name (dock.c's own: FM1-DOCK)
+SOLO = False                        # --name: a solo app (a new install starts its module, not the sine; no BLE-MIDI:
+                                    # its module and its data take HX's place)
 
 
 def main():
-    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME
+    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME, SOLO
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_95Y, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; every "
                     "other modules/<dir> is built as a .dock to deploy)")
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
+    ap.add_argument("--no-ble", action="store_true", help="no BLE-MIDI (HX) in the image: no BLUETOOTH line, its "
+                    "40 KiB free for modules")
     ap.add_argument("--boot-slot", action="store_true", help="a developer's build: it takes a whole firmware into its boot "
                     "slot (tools/hbboot.py), which takes over at power-on; a release has none")
     ap.add_argument("--name", help="the outputs' name (build/NAME.bin, .fwsc, .syms): a solo app's")
@@ -346,6 +369,7 @@ def main():
     BOOT_SLOT = a.boot_slot
     APP = a.name or APP
     APP_NAME = a.app_name
+    SOLO = bool(a.name)
     if a.identity:
         if not re.fullmatch(r"FM-1_9\d\d", a.identity):
             raise SystemExit(f"--identity {a.identity}: FM-1_9NN (the installers' loader wants 9NN)")
@@ -368,7 +392,7 @@ def main():
     every = sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c")))
     dirs = [Path(d).resolve() if "/" in d else SRC / "modules" / d for d in (a.modules or ",".join(PACKAGE)).split(",")]
     ota = build_loader()
-    host, syms, dis, rt = build_app()
+    host, syms, dis, rt, hx = build_app()
     errors, notes = check(host, syms, dis, rt)
     hal_err = mmio_check()
     errors += hal_err
@@ -384,7 +408,11 @@ def main():
     for d in every if not a.name else []:       # the others as files to deploy (tools/dock.py deploy, the tests)
         if d not in dirs:
             hbmod.build_module(d)
-    img = pack_slots(host, mods)
+    if (a.pack or a.name) and hx and not a.no_ble:   # (a solo app: its module and its data take HX's place)
+        print("note     a solo app (--name / --pack): no BLE-MIDI in this image")
+    if a.no_ble or a.pack or a.name:
+        hx = b""
+    img = pack_slots(host, mods, hx)
     if a.pack:                                  # the module's data after the last module (its own end + a scan)
         img += b"\xff" * (-len(img) % 4) + a.pack.read_bytes()
         img += b"\xff" * (-len(img) % 4)
@@ -393,6 +421,8 @@ def main():
     (OUT / f"{APP}.bin").write_bytes(img)
     (OUT / f"{APP}_xip.bin").write_bytes(b"\0" * 0x120 + img)
     print(f"host     {OUT / 'host.bin'}  {len(host)} B of {SLOT_TABLE - APP_XIP}")
+    print(f"hx       {OUT / 'hx.bin'}  {len(hx)} B of {HX_SIZE} (BLE-MIDI, flash {HX_XIP - 0x02000000 + 0x4000:#x})"
+          if hx else "hx       none (--no-ble)")
     print(f"app      {OUT / (APP + '.bin')}  {len(img)} B of {APP_SLOT}, {len(mods)} modules")
     print(f"fm1-emu  {OUT / (APP + '_xip.bin')}  (fm1-live --bin)")
     if a.no_package:

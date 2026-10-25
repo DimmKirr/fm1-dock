@@ -221,6 +221,51 @@ needs the source: a shim of the firmware's platform API on `modules/lib/hb_fm1.h
   ChoralRoot, Melodee, Tonitor: 430-570 KiB, both cores, their own USB audio and flash layouts);
   closed or unlicensed ones (April OS, SLOOP ALG, the stock firmware).
 
+## BLE-MIDI (plan, 2026-10-25)
+
+The stack: **Optimist's** (w0ts/optimist, GPL-3.0-only, `docs/BLE-STACK.md` there), written from the
+Core and BLE-MIDI specifications: link layer, host, ATT, BLE-MIDI and a driver for the WL82 baseband
+engine, no vendor code, no malloc. A Mac connects and MIDI goes both ways (Optimist on an FM-1, 2026-10).
+JieLi's own stack (btctrler.a / btstack.a, closed bitcode around its RTOS, 120-200 KiB) cannot go
+into a GPL firmware; fm1-base and Hortator use it.
+- **Where:** `firmware/src/ble/` (Optimist's files as they are, its headers kept) as a unit of its
+  own, **HX**, linked at the top of the image area (flash 0x88000-0x92000, 40 KiB; the app slot ends at 0x920DC) with a header
+  (magic, size, CRC, its entry points). The host calls it only through that header, and only after
+  the CRC is good, as it does a module; HX copies its own .data and RAM code. A boot firmware may
+  write over it: then there is no BLE (the host says so), the rest works. A boot deploy stops BLE
+  before it writes there. The host keeps the glue only (`dock.c`: the setting, the rings).
+- **MIDI:** BLE in goes into `midi_in_q` (to a module as USB's); `midi_send` goes out over BLE too
+  while a central listens; notes a central left on are ended when it goes.
+- **Off by default:** SYSTEM's BT MIDI OFF / ON. Off, the radio never starts.
+- **The radio's trims:** the unit's factory calibration, which the stock firmware keeps in its VM at
+  flash 0xE8000. Optimist reads them there, keeps a copy with the settings, and never starts the
+  radio without them. fm1-dock never writes 0xE7000-0xE9FFF (the flash guard refuses it).
+- **Status (2026-10-25, branch `ble-midi`):** steps 1-3 done in fm1-emu. HX 31 KiB of its 40,
+  8 KiB of RAM; the host +1 KiB. `tests/ble_test.py`: OFF from boot; ON without trims stays NO CAL
+  and is kept; ON with stock's VM planted at 0xE8000 runs the radio's start-up against the
+  emulator's empty BT registers and advertises (from boot after a reboot), the VM's sectors left
+  as they were; a damaged HX is refused. The other tests pass with it (emu, deploy, probe, boot).
+  **On an FM-1 (2026-10-25)**, from stock V15: its trims intact at 0xE8000 (probes/radiocal.c;
+  backed up), FM1-DOCK advertises (-45 dBm at the desk), a Mac (tools/blemidi.py, bleak) connects
+  without pairing, notes go in, and the keys come out with their velocity and pressure (188
+  messages in 20 s). The first build crashed at boot on the hardware: HX attached its two vectors
+  after Dinghy's write limit had locked the vector table (hal/fm1_guard.h); fm1-emu does not model
+  the write limits. Now HX starts only at the first ON, and its start opens and locks that window.
+- **Steps:**
+  1. The stack as HX, built and linked (stub driver and WL82 driver); the header check.
+  2. The glue, the setting, the status on the screen; a settings record (on, the address, the
+     trims copy).
+  3. fm1-emu: boots with BT ON and no trims (the radio stays off), and with trims planted at
+     0xE8000 (the start-up program runs against the emulator's empty BT registers and gives up
+     within its bounds). Later, in fm1-emu: a model of the baseband engine with a scripted central.
+  4. On an FM-1 (the user's call): a probe reads 0xE7000-0xE9FFF (trims there? a backup); a Mac
+     connects; MIDI both ways; render headroom with BLE on (CS-1, SID); a USB deploy while connected.
+  5. Later: deploys over BLE (modules); the central role, so a BLE keyboard or controller plays the
+     FM-1 with no computer between (Optimist's BLE_CENTRAL, 20.8 KiB of flash and 2.2 KiB of RAM,
+     pairing BLE_BOND 3.9 + 0.5, the devices line ~1-2 KiB: HX about 57 KiB, so a bigger region
+     and one package module less); until then a controller can be the central itself.
+  6. fm1-emu: the write limits (WR_LIMIT, C0_WR_LIMIT_EN), which would have caught the crash above.
+
 ## Phases
 
 Each phase ends with a test that has to pass before the next starts.

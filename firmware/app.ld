@@ -13,6 +13,7 @@
 MEMORY
 {
     XIP    (rx)  : ORIGIN = 0x02000120, LENGTH = 0x2FEE0
+    HX     (rx)  : ORIGIN = 0x02084000, LENGTH = 0xA000   /* flash 0x88000: BLE-MIDI (src/ble/hx.h) */
     RAMTEXT (rwx): ORIGIN = 0x01C00000, LENGTH = 0x4000
     RAM    (rwx) : ORIGIN = 0x01C08000, LENGTH = 96K
     POOL   (rw)  : ORIGIN = 0x01C20000, LENGTH = 0x10000
@@ -21,6 +22,12 @@ MEMORY
 }
 SECTIONS
 {
+    /* HX (src/ble/hx.h): its header first, its code and constants; its .data loaded behind them, copied by
+     * HX itself (crt0 copies only the host's); its .bss, .noinit and .ram_text are the host's sections' */
+    .hx : { KEEP(*(.hx_head)) *hx.o(.text* .rodata*) . = ALIGN(4); } > HX
+    .hx_data : { . = ALIGN(4); _hx_data_start = .; *hx.o(.data* .sdata*) . = ALIGN(4); _hx_data_end = .; } > RAM AT > HX
+    _hx_data_load = LOADADDR(.hx_data);
+    _hx_end = LOADADDR(.hx_data) + SIZEOF(.hx_data);
     .text : { KEEP(*(.text.crt0)) *(.text*) *(.rodata*) . = ALIGN(4); _etext = .; } > XIP
     .ram_text : { _rt_start = .; KEEP(*(.ram_text*)) . = ALIGN(4); _rt_end = .; } > RAMTEXT AT > XIP
     _rt_load = LOADADDR(.ram_text);

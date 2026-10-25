@@ -44,6 +44,7 @@ typedef struct {
     uint32_t etm[4];
     uint32_t early;                          /* consecutive crashes < 3 s after boot */
 } fm1_crash_t;
+#ifndef FM1_IRQ_UNIT                         /* (a unit of its own beside the app's, fm1-dock's HX: attach only) */
 /* Not static: .noinit holds whatever the last run (or power-on) left, and a
  * file-local object would let the compiler assume its zero initial value and
  * fold the magic check away. */
@@ -73,6 +74,8 @@ static void fm1_irq_init(void)
     FM1_ETM_CON |= 1u;                                      /* branch trace for the report */
 }
 
+#endif
+
 static void fm1_irq_attach(uint32_t n, void (*h)(void), uint32_t prio)   /* IRQs off */
 {
     uint32_t sh = (n & 7u) * 4u;
@@ -87,6 +90,7 @@ static void fm1_irq_enable_all(void)
     fm1_irq_on();
 }
 
+#ifndef FM1_IRQ_UNIT
 /* called from fm1_fatal_common (fm1_vec.S) with the saved frame:
  * f[0..15] r0..r15, f[16] reti, f[17] rete, f[18] retx, f[19] stub+6,
  * f[20] psr, f[21] icfg, f[22] usp, f[23] ssp, f[24] sp, f[25] interrupted rets */
@@ -116,3 +120,4 @@ void fm1_fault_c(uint32_t *f)
     for (;;)
         ;
 }
+#endif

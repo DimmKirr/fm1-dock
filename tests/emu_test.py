@@ -100,9 +100,8 @@ def main():
     decode_check()
 
     s, log = run("boot", "1000:14,1600:14^", 2200)
-    first = names[0] if names else "the sine"
-    check("boot", ("started 00000001" if names else "started 00000000") in log and peak(s, 0.9, 1.3) > 1000,
-          f"a new install starts the package's first module ({first}) and it plays a key")
+    check("boot", "started 00000000" in log and peak(s, 0.9, 1.3) > 1000 and peak(s, 1.8, 2.0) == 0,
+          "the built-in sine starts and plays a key")
     s, log = run("boot_safe", "0:1,400:1^,1000:14,1600:14^", 2200)
     check("boot_safe", "safe boot" in log and "started 00000000" in log and peak(s, 0.9, 1.3) > 1000 and peak(s, 1.8, 2.0) == 0,
           "OCT+ held at power-on: the built-in sine starts and plays a key")

@@ -48,7 +48,8 @@ deployed modules, settings and presets. Installing firmware is at your own risk.
 | --- | --- |
 | **HOME** | the picker (a module that owns the whole panel: hold HOME alone for 1.5 s) |
 | **SELECT / PRESETS** | move in the picker; **PLAY**, **SEL** or **HOME** load the module |
-| **OCT+ at power-on** | safe start: the sine only |
+| **BLUETOOTH** (the picker's last line) | BLE-MIDI OFF / ON with **SEL** (off by default); a computer, phone or controller connects to `FM1-DOCK xxxx` without pairing, notes go both ways |
+| **OCT+ at power-on** | safe start: the sine only (and the radio not started) |
 | **OCT− at power-on** | the USB rescue: no sound, only the updater |
 
 Hold the keys from before you switch on until the screen shows something (half a second is read).
