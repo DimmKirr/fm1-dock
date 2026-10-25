@@ -124,7 +124,7 @@ def run_emu(blob, arg, ms):
         (Path(wd) / "work").mkdir()
         ram = Path(wd) / "ram.bin"
         env = dict(os.environ, FM1_BENCH_KEYS=",".join(keys), FM1_DUMPRAM=str(ram))
-        r = subprocess.run([str(harbor.live()), "--bin", str(SRC / "build" / "harbor_xip.bin"), "--shot",
+        r = subprocess.run([str(harbor.live()), "--bin", str(SRC / "build" / "harbor_xip.bin"), *os.environ.get("PROBE_EMU_ARGS", "").split(), "--shot",
                             str(int(done) + ms)], cwd=wd, capture_output=True, text=True, env=env)
         if r.returncode:
             raise SystemExit(f"fm1-live: {r.stdout[-2000:]}{r.stderr[-2000:]}")
@@ -153,6 +153,22 @@ def result_fm1(p):
 def run_fm1(blob, arg, ms, port):
     run_id = int(time.time()) & 0x7FFFFFFF
     p = hd.Port(port)
+    notes = [0, []]                             # MIDI note-ons that came in while it ran (probes/idle.c, usbalign.c)
+
+    class Counting:                             # (rtmidi's get_message cannot be replaced: wrapped)
+        def __init__(self, inp):
+            self.inp = inp
+
+        def get_message(self):
+            m = self.inp.get_message()
+            if m and m[0] and (m[0][0] & 0xF0) == 0x90 and len(m[0]) > 2 and m[0][2]:
+                notes[0] += 1
+                notes[1].append(m[0][1])
+            return m
+
+        def __getattr__(self, name):
+            return getattr(self.inp, name)
+    p.inp = Counting(p.inp)
     h = hd.hello(p)
     if h["abi"] != struct.unpack_from("<I", blob, 4)[0]:
         raise SystemExit(f"the FM-1's harbor speaks ABI {h['abi']}: rebuild the probe or update harbor")
@@ -168,8 +184,11 @@ def run_fm1(blob, arg, ms, port):
         if c == hd.RUN or c == 0x3F:
             if d[0]:
                 raise SystemExit(f"probe: {hd.status(d)}")
-            return result_fm1(p)
+            r = result_fm1(p)
+            r["midi_in"] = {"note_ons": notes[0], "notes": notes[1][:64]}
+            return r
     print("probe: no answer (it crashed or hung, the FM-1 resets); asking again in a moment", file=sys.stderr)
+    print(f"probe: MIDI note-ons that came in before: {notes[1][:64]}", file=sys.stderr)
     for _ in range(20):
         time.sleep(1.0)
         try:
