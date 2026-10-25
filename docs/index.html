@@ -30,7 +30,7 @@
       no reinstall. Deploy your own module over USB, no reinstall, and when something goes wrong, the log, the
       crash record and the render load are one click away, here in the browser.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/joakimeriksson/fm1-dock/releases">Download fm1-dock</a>
+      <a class="btn primary" href="https://github.com/joakimeriksson/fm1-dock/releases/latest">Download fm1-dock</a>
       <a class="btn" href="#console">Open the console</a>
       <a class="btn" href="#build">Write a module</a>
     </div>
@@ -150,7 +150,7 @@
 
       <div class="box">
         <div class="box-h"><h3>Symbols</h3></div>
-        <p class="dim">Load the <code>harbor.syms</code> of the build on your FM-1 (next to <code>harbor.fwsc</code> in a release, or <code>build/</code>): every PC
+        <p class="dim">Load the <code>harbor.syms</code> of the build on your FM-1 (<a href="fm1-dock-0.4.syms">0.4's</a>, or <code>build/harbor.syms</code> for your own build): every PC
           on this page then shows its function.</p>
         <label class="file"><input type="file" id="c-syms" accept=".syms,.txt"><span>Choose harbor.syms…</span></label>
         <p id="c-syms-msg" class="msg"></p>
@@ -171,8 +171,8 @@
   <div>
     <h2>The same firmware in the emulator</h2>
     <p><a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a> runs FM-1 firmware unchanged: the same package, and with
-      <code>--flash</code> the same flash contents, deployed modules and banks included. Drop <code>harbor.fwsc</code> on the synth
-      below to run it in your browser.</p>
+      <code>--flash</code> the same flash contents, deployed modules and banks included. Below it runs fm1-dock 0.4 in your
+      browser: press Start, then hold HOME (the 7 key) to pick CS-1, Scintilla or OberVave.</p>
     <pre class="code"><span class="c"># a window: the panel, your computer's keys and MIDI</span>
 fm1-live --fwsc harbor.fwsc --flash flash.bin
 
@@ -183,7 +183,7 @@ tools/harbor.py emu --fwsc build/harbor.fwsc --deploy fm1sid.hrbr --ms 6000
 FM1_STRICT=1 fm1-live --fwsc harbor.fwsc --mhz 960</pre>
   </div>
   <div class="emu-frame">
-    <iframe src="https://joakimeriksson.github.io/fm1-emu/?embed=1" title="fm1-emu: the FM-1 in the browser" loading="lazy" allow="midi; autoplay"></iframe>
+    <iframe src="https://joakimeriksson.github.io/fm1-emu/?embed=1&amp;fw=fm1dock" title="fm1-emu: the FM-1 in the browser" loading="lazy" allow="midi; autoplay"></iframe>
   </div>
 </section>
 
