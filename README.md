@@ -73,7 +73,12 @@ has every call the host gives it.
 python3 tools/hbmod.py modules/mysynth                                  # -> build/modules/mysynth.dock
 uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock   # into the FM-1, running
 uv run --with python-rtmidi tools/dock.py modules | logs | select NAME | delete NAME
+uv run --with python-rtmidi tools/dock.py send FILE [--arg N]           # a file into the RAM of the module playing
 ```
+
+A module that sets `HB_F_DATA` gets what the computer sends it in its `data()` call, never written to flash:
+[FM-1 SID](https://github.com/joakimeriksson/fm1-sid) takes a `.sid` that way and plays it at once
+(`dock.py send tune.sid`, or "Play on my FM-1" on its page).
 
 Or drop the `.dock` on the [console](https://joakimeriksson.github.io/fm1-dock/#console). A module has 272 KiB of RAM,
 16 KiB of RAM code, a settings record and flash banks for presets; a deploy file is up to 272 KiB.

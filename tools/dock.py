@@ -16,6 +16,8 @@ On an FM-1 (USB-MIDI; python-rtmidi: uv run --with python-rtmidi tools/dock.py .
                                        (a boot firmware, tools/hbboot.py: into the boot slot, then started)
   tools/dock.py deploy MOD.dock --syx OUT.syx            the same as a SysEx file (send it slowly)
   tools/dock.py modules | delete NAME | select NAME | safe | logs   [--port NAME]
+  tools/dock.py send FILE [--arg N] [--port NAME]        a file into the RAM of the module playing (FM-1 SID:
+                                       a .sid tune, played at once; --arg the subtune); never into flash
   --blind: no answers (an interface into the DIN jack); the FM-1's screen shows how it went
 
 SCRIPT is fm1-live's FM1_BENCH_KEYS: `ms:id` presses a key / button by id (`ms:id^` releases;
@@ -198,6 +200,14 @@ def device(a):
     elif a.cmd == "logs":
         text, _ = hd.log_text(p)
         print(text.rstrip("\n"))
+    elif a.cmd == "send":
+        blob = Path(a.file).read_bytes()
+        bad = hd.send_file(p, blob, a.arg)
+        if bad:
+            step, d = bad
+            why = f"the module's error {d[1]}" if d and d[0] == 11 else hd.status(d)
+            raise SystemExit(f"{a.file}: {why} (at {step})")
+        print(f"{a.file}: sent, {len(blob)} bytes (nothing written to flash)")
     else:
         cmd = {"delete": hd.DELETE, "select": hd.SELECT, "safe": hd.SAFE}[a.cmd]
         d = p.ask(cmd, hd.name24(a.name) if a.cmd != "safe" else b"", timeout=10.0)
@@ -223,6 +233,9 @@ def main():
     d.add_argument("--syx")
     d.add_argument("--blind", action="store_true")
     d.add_argument("--boot", action="store_true", help="yes, a boot firmware (it takes over at power-on)")
+    sd = sub.add_parser("send", help="a file to the module playing, into its RAM (FM-1 SID: a .sid tune, played at once)")
+    sd.add_argument("file")
+    sd.add_argument("--arg", type=int, default=0, help="for the module (FM-1 SID: the subtune, 0: the tune's own)")
     for name in ("modules", "delete", "select", "safe", "logs"):
         c = sub.add_parser(name)
         if name in ("delete", "select"):

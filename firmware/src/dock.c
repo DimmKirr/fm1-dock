@@ -176,7 +176,7 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     img = f->code_size + f->data_size + f->rt_size;
     if (f->base != sl->at + io || f->code_size > sl->size || img > sl->size - io ||
-        f->desc + sizeof(hb_module_t) > f->code_size || (f->desc & 3u))
+        f->desc + HB_DESC_MIN > f->code_size || (f->desc & 3u))
         return M_BAD_HEAD;
     if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return M_TOO_BIG;
@@ -186,6 +186,8 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
     if (c != f->crc)
         return M_BAD_CRC;
     if (((const hb_module_t *)(f->base + f->desc))->abi != HB_ABI)
+        return M_BAD_HEAD;
+    if ((((const hb_module_t *)(f->base + f->desc))->flags & HB_F_DATA) && f->desc + sizeof(hb_module_t) > f->code_size)
         return M_BAD_HEAD;
     return M_OK;
 }
@@ -709,8 +711,12 @@ static void hb_early_init(void)
 
 static struct { uint8_t st, n, d[2]; } din;      /* the parser: running status, data bytes so far */
 #define DF_MAX 640u                             /* a SysEx frame (the 7-bit bytes between F0 and F7), as usb.c's */
-static uint8_t df_usb[DF_MAX], df_din[DF_MAX];
-static uint32_t df_usb_n, df_din_n, din_sx;    /* a frame waiting: its length; din_sx: 1 + bytes so far */
+#define DF_USB_Q 4u                             /* USB frames waiting: a sender that does not wait for each answer, or
+                                                 * one whose frame comes while the main loop is long (a flash write) */
+static uint8_t df_usb[DF_USB_Q][DF_MAX], df_din[DF_MAX];
+static uint32_t df_usb_len[DF_USB_Q], df_usb_r, df_usb_w;
+#define df_usb_n (df_usb_w - df_usb_r)          /* USB frames waiting */
+static uint32_t df_din_n, din_sx;               /* a DIN frame waiting: its length; din_sx: 1 + bytes so far */
 static int din_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)
 {
     for (;;) {
@@ -817,11 +823,12 @@ static uint32_t find_key(uint32_t k)
  * pack7 as ota.c's). Over USB each one is answered (cmd | 0x40, the same seq, a status first);
  * over DIN nothing comes back, the sender paces itself (tools/hbdeploy.py). */
 enum { D_HELLO = 0x01, D_LIST = 0x02, D_BEGIN = 0x10, D_DATA = 0x11, D_COMMIT = 0x12, D_ABORT = 0x13,
-       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_RUN = 0x30, D_RESULT = 0x31 };
+       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_MODULE = 0x23, D_RUN = 0x30, D_RESULT = 0x31 };
 enum { D_OK, D_BAD_CRC, D_BAD_HEAD, D_TOO_BIG, D_NO_SPACE, D_FLASH, D_VERIFY, D_MISSING, D_IDLE, D_NOT_FOUND,
-       D_BAD_MSG };
+       D_BAD_MSG, D_REFUSED };
 static const char *const D_TXT[] = {"DONE", "BAD CRC", "BAD HEADER", "TOO BIG", "NO SPACE", "FLASH ERROR",
-                                    "VERIFY FAILED", "DATA MISSING", "NOT STARTED", "NOT FOUND", "BAD MESSAGE"};
+                                    "VERIFY FAILED", "DATA MISSING", "NOT STARTED", "NOT FOUND", "BAD MESSAGE",
+                                    "REFUSED"};
 #define DT_MAGIC 0x54444248u                    /* "HBDT" */
 #define RX_BUF ((uint8_t *)HB_MOD_RAM)
 #define RX_MAX HB_MOD_RAM_SIZE                  /* (less than DP_HI - DP_LO) */
@@ -948,7 +955,7 @@ static uint32_t d_commit(uint32_t *key)
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     isz = f->code_size + f->data_size + f->rt_size;
     total = io + isz;
-    if (total > rx.size || isz < 4u || f->desc + sizeof(hb_module_t) > f->code_size || (f->desc & 3u))
+    if (total > rx.size || isz < 4u || f->desc + HB_DESC_MIN > f->code_size || (f->desc & 3u))
         return D_BAD_HEAD;
     if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return D_TOO_BIG;
@@ -1253,10 +1260,11 @@ static uint32_t pr_head(uint8_t *r)             /* the result's summary, r[1..27
 
 static int hb_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: a USB frame, kept for the main loop */
 {
-    if (n < 5u || n > DF_MAX || p[0] != 0x7Du || p[1] != 0x48u || p[2] != 0x42u || df_usb_n)
+    if (n < 5u || n > DF_MAX || p[0] != 0x7Du || p[1] != 0x48u || p[2] != 0x42u || df_usb_n >= DF_USB_Q)
         return 0;
-    memcpy(df_usb, p, n);
-    df_usb_n = n;
+    memcpy(df_usb[df_usb_w % DF_USB_Q], p, n);
+    df_usb_len[df_usb_w % DF_USB_Q] = n;
+    df_usb_w++;
     return 1;
 }
 
@@ -1280,8 +1288,8 @@ static void d_reply(uint32_t cmd, uint32_t seq, const uint8_t *p, uint32_t n)
 /* the frame waiting (USB first); 1: the module or the screen changed */
 static uint32_t deploy_frame(void)
 {
-    uint32_t usb_src = df_usb_n != 0, n = usb_src ? df_usb_n : df_din_n, len, cmd, seq, i, k, ch = 0;
-    const uint8_t *p = usb_src ? df_usb : df_din;
+    uint32_t usb_src = df_usb_n != 0, n = usb_src ? df_usb_len[df_usb_r % DF_USB_Q] : df_din_n, len, cmd, seq, i, k, ch = 0;
+    const uint8_t *p = usb_src ? df_usb[df_usb_r % DF_USB_Q] : df_din;
     uint8_t r[48];
     uint32_t rn = 1;
     char name[24];
@@ -1295,7 +1303,7 @@ static uint32_t deploy_frame(void)
     } else {
         len -= 4u;
     }
-    if (usb_src) df_usb_n = 0; else df_din_n = 0;
+    if (usb_src) df_usb_r++; else df_din_n = 0;   /* (unpacked into d_msg: its slot is free) */
     if (cmd == D_BEGIN || cmd == D_DELETE || cmd == D_SELECT) {
         for (i = 0; i < 23u; i++) name[i] = i + (cmd == D_BEGIN ? 8u : 0u) < len ? (char)d_msg[i + (cmd == D_BEGIN ? 8u : 0u)] : 0;
         name[23] = 0;
@@ -1479,6 +1487,18 @@ static uint32_t deploy_frame(void)
         rn = 2;
         ch = 1;
         break;
+    case D_MODULE: {                            /* [payload]: to the module playing (its data(): a tune for FM-1 SID) */
+        const hb_module_t *m = hb_active;
+        int rc;
+        if (rx.on || !m || !(m->flags & HB_F_DATA) || !m->data) { r[0] = D_NOT_FOUND; break; }
+        if (len > HB_DATA_MAX) { r[0] = D_TOO_BIG; break; }
+        rc = m->data(d_msg, len);
+        r[0] = rc ? D_REFUSED : D_OK;
+        r[1] = (uint8_t)rc;
+        r[2] = (uint8_t)cur;
+        rn = 3;
+        break;
+    }
     default:
         if (!r[0]) r[0] = D_BAD_MSG;
         break;
