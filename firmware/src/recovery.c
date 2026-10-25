@@ -38,9 +38,10 @@ static void recovery_step(void)
     }
 }
 
-/* how long the keys are read at power-on: 50 ms missed OCT- on a real FM-1 (FM-1 SID on Dinghy,
- * 2026-10-24; fm1-dock's boot hook, 2026-10-25) where FM-1 SID's own 400 ms saw it */
-#define RESCUE_KEY_MS 500u
+/* the platform's first look at the keys (50 ms): on a real FM-1 it can miss OCT- (FM-1 SID on Dinghy,
+ * 2026-10-24; fm1-dock's boot hook, 2026-10-25), so fm1-dock looks again while it starts (dock.c
+ * rescue_late: OCT- held in its first 600 ms), as FM-1 SID's own 400 ms look, which saw it on the chip */
+#define RESCUE_KEY_MS 50u
 static int recovery_key(void)
 {
     uint32_t start = fm1_ticks();

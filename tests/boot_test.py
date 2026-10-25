@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """fm1-dock's boot slot in fm1-emu (fm1-live --fwsc, --flash; its SFC model decrypts what fm1-dock writes
 below the plain window): a whole firmware deployed over DIN, then power-ons from that flash.
-  tools/build.py && tests/boot_test.py BOOT.dock     (tools/hbboot.py: e.g. Felucca relinked)
+  tools/build.py --boot-slot && tests/boot_test.py BOOT.dock     (tools/hbboot.py: e.g. Felucca relinked)
   - install: the boot firmware into the DIN jack: written encrypted, read back through the SFC, in the table;
   - boot: at power-on fm1-dock hands over (the start counted), the firmware runs and plays a key;
   - home: HOME held at power-on: fm1-dock stays, the firmware in its list;

@@ -173,7 +173,7 @@ SLOT_FIRST = SLOT_TABLE + 0x1000
 
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
-             f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"']
+             f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"', *(["-DHB_BOOT_SLOT=1"] if BOOT_SLOT else [])]
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
@@ -319,15 +319,21 @@ def mmio_check():
     return errors
 
 
+BOOT_SLOT = False                   # --boot-slot: the boot slot is in (a developer's build)
+
+
 def main():
-    global PRODUCT, VERSION
+    global PRODUCT, VERSION, BOOT_SLOT
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_95Y, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     ap.add_argument("--modules", help=f"the modules to pack, in slot order (default: {','.join(PACKAGE)}; every "
                     "other modules/<dir> is built as a .dock to deploy)")
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
+    ap.add_argument("--boot-slot", action="store_true", help="a developer's build: it takes a whole firmware into its boot "
+                    "slot (tools/hbboot.py), which takes over at power-on; a release has none")
     a = ap.parse_args()
+    BOOT_SLOT = a.boot_slot
     name = f"{APP}.fwsc"
     if a.release:                   # one digit each: the identity has room for two (X.Y; a .Z only in the text)
         m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)

@@ -271,6 +271,7 @@ static void add_boot(const hb_slot_t *sl)
     hb_log(e->name);
 }
 
+static uint32_t dt_write(const hb_slot_t *e, uint32_t n);
 static void scan_slots(void)
 {
     const hb_slot_t *t = (const hb_slot_t *)FM1_XIP(HB_TABLE_AT);
@@ -283,6 +284,22 @@ static void scan_slots(void)
     mods[0].key = name_key("(built in)");       /* its own settings, apart from a slot of the same name */
     n_mods = 1;
     dt_load();
+#ifdef HB_BOOT_SLOT
+#define BOOT_GONE(b) (check_boot(b) == M_BAD_HEAD)
+#else
+#define BOOT_GONE(b) 1                          /* (a release has no boot slot: an old entry goes) */
+#endif
+    if (dt_boot() && BOOT_GONE(dt_boot()) && t[0].magic == HB_SLOT_MAGIC) {
+        /* an install wrote a package (its slot table) where the boot firmware was: it is gone, and
+         * deleting it by name could not find its name any more. The table forgets it, so the
+         * package's own modules (the image's) run */
+        static hb_slot_t e[HB_SLOTS];
+        uint32_t m, k = (uint32_t)(dt_boot() - dt.s);
+        for (i = m = 0; i < dt.n; i++)
+            if (i != k) e[m++] = dt.s[i];
+        hb_log_u32("boot firmware gone (an install, or a release): forgotten", dt_write(e, m));
+        dt_load();
+    }
     for (i = 0; i < HB_SLOTS && !dt_boot() && t[i].magic == HB_SLOT_MAGIC; i++)
         add_slot(&t[i], K_IMAGE, HB_AREA_LO, HB_AREA_HI);   /* (a boot firmware is where the image's were) */
     for (i = 0; i < dt.n; i++)
@@ -1065,6 +1082,11 @@ static uint32_t boot_begin(const uint8_t *h)    /* chunk 0 is a boot firmware's 
     static hb_slot_t e[HB_SLOTS];
     const hb_file_t *f = (const hb_file_t *)h;
     uint32_t i, n;
+#ifndef HB_BOOT_SLOT
+    (void)e; (void)f; (void)i; (void)n;
+    hb_log("deploy: this build takes no boot firmware (tools/build.py --boot-slot)");
+    return D_BAD_HEAD;
+#endif
     if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->n_relocs || f->desc || f->base != FM1_XIP(HB_BOOT_IMG) ||
         f->code_size + 256u != rx.size || rx.size > HB_BOOT_HI - BOOT_AT)
         return D_BAD_HEAD;
@@ -1519,6 +1541,10 @@ static void hb_boot_hook(uint32_t p3)
 {
     const hb_slot_t *b;
     uint32_t t0;
+#ifndef HB_BOOT_SLOT                            /* a release takes no boot firmware (tools/build.py --boot-slot: a developer's) */
+    (void)p3; (void)b; (void)t0;
+    return;
+#endif
     if (GO[0] != GO_MAGIC || ((p3 & 1u) && !(p3 & (4u | 0x40u)))) {   /* a power-on */
         GO[0] = GO_MAGIC;
         GO[1] = 0;
@@ -1571,6 +1597,18 @@ static void hb_boot_hook(uint32_t p3)
     fm1_irq_off();
     fm1_wdt_feed();
     ((void (*)(uint32_t))FM1_XIP(HB_BOOT_IMG))(fm1_boot_param());
+}
+
+/* OCT- held as fm1-dock starts (its first 600 ms, the keys scanned by the timer): the USB rescue,
+ * where the platform's 50 ms look at power-on missed it. Only the updater from here on. */
+static void rescue_late(void)
+{
+    hb_log("OCT- held at power-on: the USB rescue");
+    fm1_audio_stop();
+    fm1_irq_off();
+    usb_detach();
+    fm1_delay_ms(30);
+    recovery_main();
 }
 
 static void play_note(uint32_t ch, uint32_t key, uint32_t vel)
@@ -1641,6 +1679,8 @@ static void app_main(void)
         uint8_t s, d1, d2;
         const hb_module_t *m;
         platform_poll();
+        if (fm1_ms < 600u && (fm1_in.buttons >> BTN_OCT_DOWN & 1u))
+            rescue_late();                      /* (OCT- held from power-on) */
         m = hb_active;
         panel = m && (m->flags & HB_F_PANEL) && m->ui;
         screen = m && (m->flags & HB_F_SCREEN);
