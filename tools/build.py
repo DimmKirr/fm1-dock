@@ -68,14 +68,23 @@ def use_docker():
 
 
 def tc(tool, *args):
-    """run a toolchain binary (pi32v2/bin/..., common/bin/...) with cwd SRC; paths relative to SRC"""
-    rel = [str(Path(a).resolve().relative_to(SRC)) if isinstance(a, Path) else a for a in args]
+    """run a toolchain binary (pi32v2/bin/..., common/bin/...) with cwd SRC; paths relative to SRC, or
+    absolute outside it (a module in another repository: its directories in HB_MOUNT, os.pathsep
+    between, are mounted at the same path in the container)"""
+    def arg(a):
+        if not isinstance(a, Path):
+            return a
+        p = Path(a).resolve()
+        return str(p.relative_to(SRC)) if p.is_relative_to(SRC) else str(p)
+    rel = [arg(a) for a in args]
     if tool == "cc":                # the toolchain's cc wrapper needs python3; call clang directly
         tool, rel = "pi32v2/bin/clang", ["-target", "pi32v2", *rel]
     elif tool == "cxx":
         tool, rel = "pi32v2/bin/clang++", ["-target", "pi32v2", *rel]
     if use_docker():
-        cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work",
+        extra = [x for d in os.environ.get("HB_MOUNT", "").split(os.pathsep) if d
+                 for x in ("-v", f"{Path(d).resolve()}:{Path(d).resolve()}")]
+        cmd = ["docker", "run", "--rm", "--platform", "linux/amd64", "-v", f"{SRC}:/work", *extra,
                "-v", f"{toolchain()}:/opt/jieli:ro", "-w", "/work", DOCKER_IMAGE, f"/opt/jieli/{tool}", *rel]
     else:
         cmd = [str(toolchain() / tool), *rel]

@@ -84,6 +84,18 @@ static void fm1_guard_enable(uint32_t which)
     fm1__dbg_lock();
 }
 
+/* the PC limits again (after fm1_guard_enable): code may run in [lo0, hi0] and [lo1, hi1] (inclusive),
+ * an instruction fetched outside both raises the exception (DBG_MSG bit 12). lo0 0: from the XIP's start */
+static void fm1_guard_pc(uint32_t lo0, uint32_t hi0, uint32_t lo1, uint32_t hi1)
+{
+    fm1__dbg_unlock();
+    FM1_PC_LIMIT0_L = lo0 ? lo0 : 0x02000120u;
+    FM1_PC_LIMIT0_H = hi0;
+    FM1_PC_LIMIT1_L = lo1;
+    FM1_PC_LIMIT1_H = hi1;
+    fm1__dbg_lock();
+}
+
 /* write-protect 0x01C7FD50..0x01C7FFFF (boot info, mailbox, vectors):
  * call after the last fm1_irq_attach */
 static void fm1_guard_lock_top(void)

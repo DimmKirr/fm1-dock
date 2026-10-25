@@ -8,6 +8,8 @@
 
 A module is a directory of C / C++ files (*.c, *.cc), and module.cfg: `name =`, `version =`,
 `cflags =`, `cxxflags =` (C++ only), `sources =` for files elsewhere (relative to the directory),
+`includes =` directories for -I (relative to the directory; a module may live outside harbor's tree, as
+FM-1 SID's harbor/ does in its own repository),
 `libs =` toolchain libraries (`m c` for libm and libc), `kind = probe` for a probe (hb_module.h,
 "Probes": probes/probe.ld, flag HB_F_PROBE; a single .c file is a probe by itself). Every module also gets
 modules/lib/hb_lib.c (memcpy, memset, ...) and the toolchain's compiler_rt (division, 64-bit and
@@ -119,9 +121,13 @@ def find_relocs(a, b):
 
 
 def read_cfg(d):
-    cfg = {"name": d.name.upper(), "version": "1", "cflags": "", "cxxflags": "", "sources": "", "libs": "", "kind": "module"}
-    if d.is_file():                             # a single .c: a probe
+    cfg = {"name": d.name.upper(), "version": "1", "cflags": "", "cxxflags": "", "sources": "", "includes": "", "libs": "",
+           "kind": "module"}
+    if d.is_file():                             # a single .c: a probe (its own flags: /* hbmod-cflags: ... */)
         cfg.update(name=d.stem.upper(), kind="probe")
+        m = re.search(r"hbmod-cflags:\s*(.+?)\s*\*/", d.read_text())
+        if m:
+            cfg["cflags"] = m.group(1)
         return cfg
     p = d / "module.cfg"
     if p.exists():
@@ -186,13 +192,21 @@ def build_module(d):
     srcs = [d] if d.is_file() else sorted([*d.glob("*.c"), *d.glob("*.cc")])
     base_dir = d.parent if d.is_file() else d
     srcs = srcs + [(base_dir / s).resolve() for s in cfg["sources"].split()] + [MODS / "lib" / "hb_lib.c"]
-    flags = [*CFLAGS, f"-I{base_dir.relative_to(SRC)}", "-Iprobes", *cfg["cflags"].split()]
+    inc_dir = base_dir.relative_to(SRC) if base_dir.is_relative_to(SRC) else base_dir
+    flags = [*CFLAGS, f"-I{inc_dir}", *[f"-I{(base_dir / i).resolve()}" for i in cfg["includes"].split()], "-Iprobes",
+             *cfg["cflags"].split()]
     if cfg["libs"].split():                     # libc / libm: their headers too
         inc = "/opt/jieli/pi32v2/include" if build.use_docker() else str(build.toolchain() / "pi32v2/include")
         flags += ["-isystem", inc]
-    # (object names from the path below the module, so resid/sid.cc and sid.c do not collide)
-    objs = [out / ("_".join(s.relative_to(base_dir).with_suffix("").parts if s.is_relative_to(base_dir) else (s.stem,)) + ".o")
-            for s in srcs]
+    # (object names from the path below the module, so resid/sid.cc and sid.c do not collide; a file
+    # outside it by its path from the module's parent: ../src/sid.c and ../ext/resid-0.16/sid.cc neither)
+    def oname(s):
+        if s.is_relative_to(base_dir):
+            return "_".join(s.relative_to(base_dir).with_suffix("").parts)
+        if s.is_relative_to(base_dir.parent):
+            return "up_" + "_".join(s.relative_to(base_dir.parent).with_suffix("").parts).replace(".", "_")
+        return s.stem
+    objs = [out / (oname(s) + ".o") for s in srcs]
     build.tc_all(*[("cxx", *flags, *cfg["cxxflags"].split(), "-c", s, "-o", o) if s.suffix == ".cc" else
                    ("cc", *flags, "-c", s, "-o", o) for s, o in zip(srcs, objs)])
     libs = cfg["libs"].split()
