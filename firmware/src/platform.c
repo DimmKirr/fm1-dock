@@ -82,8 +82,13 @@ static volatile uint32_t fm1_ms;                /* milliseconds since power-on (
 #define APP_FL_LO 0u
 #define APP_FL_HI 0u
 #endif
-#define FL_RANGE_OK(off, n) (FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u) || \
-                             FL_IN(off, n, APP_FL_LO, APP_FL_HI))
+#ifndef APP_FL_KEEP_LO                          /* inside that area, what the app never writes */
+#define APP_FL_KEEP_LO 0u
+#define APP_FL_KEEP_HI 0u
+#endif
+#define FL_RANGE_OK(off, n) ((FL_IN(off, n, FL_OTA_LO, FL_OTA_HI) || FL_IN(off, n, SETTINGS_AT, SETTINGS_AT + 0x1000u) || \
+                              FL_IN(off, n, APP_FL_LO, APP_FL_HI)) && \
+                             ((uint32_t)(off) + (uint32_t)(n) <= APP_FL_KEEP_LO || (uint32_t)(off) >= APP_FL_KEEP_HI))
 #include "fm1_flash.h"
 static uint8_t flash_ok;
 static int st_read(uint32_t off, void *dst, uint32_t n)
@@ -227,8 +232,12 @@ void fm1_timer5_irq(void)
             uac_service();
         return;
     }
-    if (owed)
+    if (owed) {
         usb_poll();
+#ifdef APP_T5_POLL
+        APP_T5_POLL();                          /* the app's 2 kHz part (fm1-dock: BLE MIDI in) */
+#endif
+    }
     owed = 0;
 }
 extern void isr_timer5(void);

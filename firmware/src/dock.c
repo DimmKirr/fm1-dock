@@ -36,9 +36,15 @@
 #define APP_FL_HI 0xFC000u                      /* slot, the deployed modules, their table, the banks; never the host
                                                  * (below; tools/build.py checks that it ends there) */
 #define SETTINGS_AT 0x95000u                    /* the host's own sector (0xFC000 is a boot firmware's: Felucca's) */
+#define APP_FL_KEEP_LO 0xE7000u                 /* stock's VM with the radio's factory trims (0xE8000) and BTIF: */
+#define APP_FL_KEEP_HI 0xEA000u                 /* never written, whatever else the area may take */
 #define APP_BOOT_HOOK hb_boot_hook
 #define APP_SYSEX hb_sysex
+#define APP_MIDI_OUT ble_out                    /* BLE-MIDI (src/ble/hx.h): out from the audio ISR, in from TIMER5 */
+#define APP_T5_POLL ble_poll
 #include <stdint.h>
+static void ble_out(uint32_t pkt);
+static void ble_poll(void);
 static void hb_boot_hook(uint32_t p3);
 static void hb_boot_now(void);
 static void hb_analog(uint32_t col, uint32_t rowbit, uint32_t v, uint32_t driven);
@@ -331,9 +337,10 @@ static void store_flush(void)
 }
 static void store_touch(void) { st_dirty = 1; st_changed = fm1_ms; }
 
-static int mod_load(void *p, uint32_t n)
+#define BLE_KEY 0x454C4248u                     /* "HBLE": BLE-MIDI's record (ble_rec), never a module's key */
+static int rec_load(uint32_t k, void *p, uint32_t n)
 {
-    uint32_t i, k = mods[cur].key;
+    uint32_t i;
     for (i = 0; i < ST_RECS; i++)
         if (st.rec[i].key == k && st.rec[i].len == n && n <= sizeof st.rec[i].d) {
             memcpy(p, st.rec[i].d, n);
@@ -341,16 +348,16 @@ static int mod_load(void *p, uint32_t n)
         }
     return -1;
 }
-static void mod_save(const void *p, uint32_t n)
+static void rec_save(uint32_t k, const void *p, uint32_t n)
 {
-    uint32_t i, k = mods[cur].key, pick = ST_RECS;
+    uint32_t i, pick = ST_RECS;
     if (n > sizeof st.rec[0].d)
         return;
     for (i = 0; i < ST_RECS; i++)
         if (st.rec[i].key == k) { pick = i; break; }
     if (pick == ST_RECS)                        /* a free record, else the first that is not a module's here */
         for (i = 0; i < ST_RECS && pick == ST_RECS; i++) {
-            uint32_t m, used = 0;
+            uint32_t m, used = st.rec[i].key == BLE_KEY;
             for (m = 0; m < n_mods; m++)
                 used |= st.rec[i].key == mods[m].key;
             if (!st.rec[i].key || !used) pick = i;
@@ -363,6 +370,97 @@ static void mod_save(const void *p, uint32_t n)
     st.rec[pick].len = n;
     memcpy(st.rec[pick].d, p, n);
     store_touch();
+}
+static int mod_load(void *p, uint32_t n) { return rec_load(mods[cur].key, p, n); }
+static void mod_save(const void *p, uint32_t n) { rec_save(mods[cur].key, p, n); }
+
+/* ---- BLE-MIDI: HX (src/ble/hx.h, Optimist's stack) at its place in the image, called only through its
+ * header and only once that header's CRC is good (a boot firmware may have written over it). OFF by
+ * default; ON in the module list's BLUETOOTH line. BLE in goes into the USB-MIDI ring (TIMER5, as USB's
+ * own), so a module gets it as it gets USB; what the host sends out goes to BLE too. */
+#include "ble/hx.h"
+#define HX_S_MISSING 0xFFu                      /* (no HX) */
+static const hx_api_t *hx;
+static volatile uint8_t hx_live;                /* its TIMER5 and audio ISR parts may run */
+static uint8_t hx_built;                        /* the image has HX (the list's BLUETOOTH line); tools/build.py --no-ble: not */
+static uint8_t ble_rec[4 + HX_KEPT];            /* the settings record: [0] ON, then HX's (its address, the trims copy) */
+static int ble_flash_read(uint32_t off, void *dst, uint32_t n) { return flash_ok ? st_read(off, dst, n) : -1; }
+static int ble_midi_in(uint32_t pkt)            /* TIMER5: the USB-MIDI ring's other producer, in the same ISR */
+{
+    if (mi_w - mi_r >= MQ)
+        return 0;
+    midi_in_q[mi_w % MQ] = pkt;
+    RING_PUBLISH();
+    mi_w++;
+    return 1;
+}
+static const hx_host_t hx_host = {ble_flash_read, ble_midi_in};
+static void ble_out(uint32_t pkt) { if (hx_live) hx->out(pkt); }
+static void ble_poll(void) { if (hx_live) hx->poll(); }
+static uint8_t ble_held;                        /* ON saved, but this boot does not start it (safe boot, a failed boot) */
+static uint32_t ble_state(void)
+{
+    if (!hx)
+        return HX_S_MISSING;
+    if (!hx_live)                               /* (nothing of HX has run yet) */
+        return ble_rec[0] ? HX_S_HELD : HX_S_OFF;
+    return hx->state();
+}
+static void ble_start(uint32_t failed)          /* HX's first code: only once BLUETOOTH is ON */
+{
+    fm1_irq_off();                              /* (the radio's start-up: before any BLE interrupt) */
+    fm1_guard_unlock_top();                     /* HX attaches its two vectors: the write limit over the vector
+                                                 * table (hal/fm1_guard.h) faulted it on an FM-1 (2026-10-25) */
+    hx->init(&hx_host, ble_rec + 4, 1, failed);
+    fm1_guard_lock_top();
+    hx_live = 1;
+    fm1_irq_on();
+}
+
+static void ble_boot(uint32_t safe)             /* after the settings, the module table and the boot guard */
+{
+    const hx_api_t *h = (const hx_api_t *)HX_XIP;
+    if (h->magic != HX_MAGIC || h->abi != HX_ABI || h->size < sizeof *h || h->size > HX_SIZE ||
+        crc_fast(0, (const uint8_t *)h + 16, h->size - 16u) != h->crc) {
+        hb_log(h->magic == 0xFFFFFFFFu ? "BLE: not in this build" : "BLE: HX damaged (written over?)");
+        hx_built = h->magic != 0xFFFFFFFFu;     /* (damaged: the line says MISSING) */
+        return;
+    }
+    hx_built = 1;
+    if (rec_load(BLE_KEY, ble_rec, sizeof ble_rec))
+        memset(ble_rec, 0, sizeof ble_rec);
+    hx = h;
+    ble_held = (uint8_t)(ble_rec[0] && (bootguard.failed || safe));
+    if (ble_rec[0] && !ble_held)
+        ble_start(0);                           /* ON saved: HX starts now; OFF: none of its code runs */
+    hb_log_u32("BLE", ble_state());
+}
+static void ble_set(uint32_t on)                /* the main loop */
+{
+    if (!hx)
+        return;
+    if (!hx_live && on)
+        ble_start(0);                           /* (the first ON: HX's start, the radio's with it) */
+    else if (hx_live)
+        hx->set(on);
+    hb_log_u32("BLE set", ble_state());
+    ble_rec[0] = (uint8_t)on;
+    rec_save(BLE_KEY, ble_rec, sizeof ble_rec);
+}
+static void ble_main(void)                      /* the main loop: what HX wants kept */
+{
+    if (hx_live && hx->kept(ble_rec + 4))
+        rec_save(BLE_KEY, ble_rec, sizeof ble_rec);
+}
+static void ble_stop(void)                      /* before the image area is written (a boot deploy): no more HX */
+{
+    fm1_irq_off();                              /* (no ISR between the test of hx_live and its call) */
+    if (hx_live) {
+        hx_live = 0;
+        hx->stop();
+    }
+    hx = 0;
+    fm1_irq_on();
 }
 
 /* ---- the keys' force: Velo's sensing (charlesvestal/fm1-velocity; sense.c as CS-1 carries it) on the
@@ -747,8 +845,22 @@ static void draw_top(int32_t oct)
     cv_text(4, 2, &FONT_S, mods[cur].name, C_ACC);
     cv_text(236 - text_w(&FONT_S, s) - 12 - text_w(&FONT_S, c), 2, &FONT_S, c, C_OFF);
     cv_text(236 - text_w(&FONT_S, s), 2, &FONT_S, s, C_OFF);
+    if (ble_state() == HX_S_LINK || ble_state() == HX_S_READY)   /* a central connected */
+        cv_text(236 - text_w(&FONT_S, s) - 12 - text_w(&FONT_S, c) - 12 - text_w(&FONT_S, "BT"), 2, &FONT_S, "BT", C_ACC);
     cv_rect(0, 19, 240, 1, C_OFF);
     cv_blit(0, 0);
+}
+
+/* the list's last line, after the modules: BLUETOOTH and HX's state */
+static const char *const BLE_ST[] = {"OFF", "NO CAL", "HELD", "ON", "LINKED", "READY"};
+static void draw_ble_line(uint32_t y, uint32_t on_it)
+{
+    uint32_t b = ble_state();
+    cv_begin(240, 28, on_it ? RGB(40, 30, 60) : C_BLACK);
+    cv_text(12, 6, &FONT_S, "BLUETOOTH", on_it ? C_ACC : C_WHITE);
+    cv_text(150, 6, &FONT_S, b == HX_S_MISSING ? "MISSING" : BLE_ST[b],
+            b == HX_S_MISSING || b == HX_S_NOCAL || b == HX_S_HELD ? C_BAD : b >= HX_S_LINK ? C_ACC : C_OFF);
+    cv_blit(0, y);
 }
 
 static void draw_picker(uint32_t sel)
@@ -756,6 +868,8 @@ static void draw_picker(uint32_t sel)
     uint32_t i, first = sel > 5u ? sel - 5u : 0;
     lcd_fill(0, HB_TOP, 240, 240 - HB_TOP, C_BLACK);
     draw_text_box(0, 30, 240, &FONT_S, "MODULES", C_OFF, 1);
+    if (hx_built && first + 6u > n_mods)
+        draw_ble_line(56 + (n_mods - first) * 30u, sel == n_mods);
     for (i = first; i < n_mods && i < first + 6u; i++) {
         hb_entry_t *e = &mods[i];
         char sz[12] = "BUILT IN";
@@ -772,6 +886,23 @@ static void draw_picker(uint32_t sel)
         cv_text(150, 6, &FONT_S, e->state != M_OK ? M_STATE[e->state] : sz, e->state != M_OK ? C_BAD : C_OFF);
         cv_blit(0, 56 + (i - first) * 30u);
     }
+}
+
+/* the list lights SEL (the button that loads a module, or switches BLUETOOTH); the LEDs as they were after it */
+static void sel_led(uint32_t on)
+{
+    static uint8_t lit, led[FM1_NCOL], dim[FM1_NCOL];
+    if (on == lit)
+        return;
+    if (on) {
+        memcpy(led, fm1_led, sizeof led);
+        memcpy(dim, fm1_led_dim, sizeof dim);
+        h_led(BTN_SEL, 1);
+    } else {
+        memcpy(fm1_led, led, sizeof led);
+        memcpy(fm1_led_dim, dim, sizeof dim);
+    }
+    lit = (uint8_t)on;
 }
 
 static uint32_t find_key(uint32_t k)
@@ -1078,6 +1209,8 @@ static uint32_t boot_begin(const uint8_t *h)    /* chunk 0 is a boot firmware's 
         return D_FLASH;
     if (dt.n && dt_write(e, n) != D_OK)        /* the old boot firmware out of the table first */
         return D_FLASH;
+    if (BOOT_AT + rx.size > HX_AT)
+        ble_stop();                             /* it reaches HX's flash: BLE off until the next boot */
     rx.boot = 1;
     rx.next = rx.crc_run = 0;
     rx.sec = HB_BOOT_LO;
@@ -1540,6 +1673,7 @@ static void app_main(void)
 {
     uint32_t prev = 0, k, full = 1, picker = 0, sel = 0, t_top = 0, held_any = 0, t_notes = 0, safe = 0;
     uint32_t home_t0 = 0, home_alone = 0, home_eaten = 0;   /* HOME held alone 1.5 s: the picker (HB_F_PANEL) */
+    uint32_t ble_drawn = HX_S_MISSING + 1u;    /* (the picker's BLUETOOTH line as drawn) */
     uint32_t sheld = 0, t_press = 0;            /* the sensed keys held (bit k); the pressure's last round */
     int32_t oct_drawn = 99;
     uint8_t held[27] = {0}, press_sent[27] = {0};
@@ -1578,9 +1712,10 @@ static void app_main(void)
 
     fm1_delay_ms(60);                           /* the key scan sees what is held at power-on */
     safe = (fm1_in.buttons >> BTN_OCT_UP) & 1u;
+    ble_boot(safe);
     lcd_fill(0, 0, 240, 240, C_BLACK);
     if (safe)
-        hb_log("safe boot (OCT+): the sine only");
+        hb_log("safe boot (OCT+): the sine only, the radio not started");
     k = safe ? 0 : find_key(st.sel_key);
     if (k && mods[k].kind == K_BOOT) {          /* the boot firmware is the one, but fm1-dock stayed: the sine */
         hb_log_u32("boot firmware not started", boot_why);
@@ -1716,10 +1851,19 @@ static void app_main(void)
                 fm1_enc_take(e);                /* (the module's knobs do nothing meanwhile) */
             if (mv) {
                 int32_t ns = (int32_t)sel + mv;
-                sel = ns < 0 ? 0 : ns >= (int32_t)n_mods ? n_mods - 1u : (uint32_t)ns;
+                sel = ns < 0 ? 0 : ns > (int32_t)n_mods - !hx_built ? n_mods - !hx_built : (uint32_t)ns;   /* (n_mods: BLUETOOTH) */
                 draw_picker(sel);
             }
-            if (b & (1u << BTN_HOME | 1u << BTN_SEL | 1u << BTN_PLAY)) {
+            if (ble_state() != ble_drawn) {
+                ble_drawn = ble_state();
+                draw_picker(sel);
+            }
+            if (sel == n_mods && (b & (1u << BTN_SEL | 1u << BTN_PLAY))) {
+                ble_set(ble_state() == HX_S_OFF);   /* BLUETOOTH ON / OFF; the list stays */
+                draw_picker(sel);
+            } else if (b & (1u << BTN_HOME | 1u << BTN_SEL | 1u << BTN_PLAY)) {
+                if (sel == n_mods)
+                    sel = cur;                  /* (HOME on BLUETOOTH: back to the module) */
                 picker = 0;
                 full = 1;
                 lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -1781,6 +1925,7 @@ static void app_main(void)
             }
         }
 
+        sel_led(picker);
         if ((!screen || picker) && (st.oct != oct_drawn || fm1_ms - t_top > 500u || full)) {
             oct_drawn = st.oct;
             t_top = fm1_ms;
@@ -1792,6 +1937,7 @@ static void app_main(void)
             full = 0;
         }
 
+        ble_main();
         if (st_dirty && !held_any && fm1_ms - st_changed > 2000u && fm1_ms - t_notes > 2000u)
             store_flush();                      /* (interrupts are off while the flash is busy: no module code runs) */
     }
