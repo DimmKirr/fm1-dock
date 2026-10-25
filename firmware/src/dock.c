@@ -28,7 +28,9 @@
  *              start (HOME held: fm1-dock stays; two starts without a power cycle between: fm1-dock
  *              stays). It is written as an update writes, encrypted with the chip key. One that
  *              keeps no flash data (HB_F_BOOT_NODATA: FM-1 SID) leaves the deployed modules in. */
+#ifndef APP_NAME                                /* (tools/build.py --app-name: a solo app's) */
 #define APP_NAME "FM1-DOCK"
+#endif
 #define CV_MAX (240u * 96u)
 #define APP_FAULT_HOOK hb_fault
 #define APP_EARLY_INIT hb_early_init
@@ -1663,6 +1665,8 @@ static void app_main(void)
     if (safe)
         hb_log("safe boot (OCT+): the sine only");
     k = safe ? 0 : find_key(st.sel_key);
+    if (!safe && !st.sel_key && n_mods > 1u && mods[1].kind == K_IMAGE)
+        k = 1;                                  /* nothing picked yet (a new install): the package's first module */
     if (k && mods[k].kind == K_BOOT) {          /* the boot firmware is the one, but fm1-dock stayed: the sine */
         hb_log_u32("boot firmware not started", boot_why);
         k = 0;
