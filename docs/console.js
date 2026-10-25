@@ -178,6 +178,11 @@ async function deployFile() {
   let info;
   try { info = moduleInfo(f.blob); } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; return; }
   if (info.probe) { msg.textContent = `${info.name} is a probe: run it under "Run a probe"`; msg.className = "msg bad"; return; }
+  if (info.boot) {                              // it would take over at every power-on, with its own USB
+    msg.textContent = `${info.name} is a boot firmware: it takes over the FM-1 at power-on with its own USB. Deploy it with tools/dock.py deploy --boot, only if it answers the installers.`;
+    msg.className = "msg bad";
+    return;
+  }
   if (!confirm(`Deploy ${info.name} v${info.version} (${kib(f.blob.length)}) into the FM-1's flash? It starts playing when it is in.`)) return;
   msg.className = "msg";
   bar("c-deploy-bar", 0);

@@ -38,6 +38,9 @@ static void recovery_step(void)
     }
 }
 
+/* how long the keys are read at power-on: 50 ms missed OCT- on a real FM-1 (FM-1 SID on Dinghy,
+ * 2026-10-24; fm1-dock's boot hook, 2026-10-25) where FM-1 SID's own 400 ms saw it */
+#define RESCUE_KEY_MS 500u
 static int recovery_key(void)
 {
     uint32_t start = fm1_ticks();
@@ -45,7 +48,7 @@ static int recovery_key(void)
     do {
         fm1_wdt_feed();
         fm1_input_scan();
-    } while ((uint32_t)(fm1_ticks() - start) < 50u * 1000u * FM1_TICKS_PER_US);
+    } while ((uint32_t)(fm1_ticks() - start) < RESCUE_KEY_MS * 1000u * FM1_TICKS_PER_US);
     return bootguard_manual(fm1_in.buttons);
 }
 
