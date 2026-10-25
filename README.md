@@ -51,6 +51,14 @@ deployed modules, settings and presets. Installing firmware is at your own risk.
 | **OCT+ at power-on** | safe start: the sine only |
 | **OCT− at power-on** | the USB rescue: no sound, only the updater |
 
+Hold the keys from before you switch on until the screen shows something (half a second is read).
+
+**A whole firmware in the boot slot** (`tools/hbboot.py`, `tools/dock.py deploy --boot`: a developer's
+tool) takes over the FM-1 at every power-on, with its own USB. If its USB does not answer, the installers
+cannot reach the FM-1 while it runs, so there are two ways back to fm1-dock that need nothing from it:
+hold **HOME** while switching on (or while **STARTING** shows), or **switch off while STARTING shows,
+twice in a row**: the third start stays in fm1-dock. Only deploy one you know answers the installers.
+
 fm1-dock starts whatever played last. A module that crashes twice in a row is skipped at boot until you pick it again;
 one that renders slower than real time is stopped and the sine plays, so USB and the updater keep working.
 

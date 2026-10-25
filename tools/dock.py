@@ -162,6 +162,14 @@ def find_lcd(img):
     return None
 
 
+BOOT_WARNING = """This is a boot firmware: it takes over the FM-1 at every power-on, with its own USB.
+If its USB does not answer, no installer reaches the FM-1 while it runs. The way back to fm1-dock:
+  - hold HOME while switching on (keep holding while STARTING shows), or
+  - switch off while STARTING shows, twice in a row: the third start stays in fm1-dock.
+Deploy it only if you know it answers the installers (test it in fm1-emu first: tools/dock.py emu).
+Add --boot to deploy it anyway."""
+
+
 def device(a):
     import hbdeploy as hd
     if a.cmd == "deploy" and a.syx:
@@ -173,7 +181,10 @@ def device(a):
         return
     p = hd.Port(a.port, blind=getattr(a, "blind", False))
     if a.cmd == "deploy":
-        hd.deploy(p, Path(a.module).read_bytes())
+        blob = Path(a.module).read_bytes()
+        if hd.is_boot(blob) and not a.boot:
+            raise SystemExit(BOOT_WARNING)
+        hd.deploy(p, blob)
     elif a.cmd == "modules":
         h = hd.hello(p)
         for m in hd.modules(p):
@@ -211,6 +222,7 @@ def main():
     d.add_argument("module")
     d.add_argument("--syx")
     d.add_argument("--blind", action="store_true")
+    d.add_argument("--boot", action="store_true", help="yes, a boot firmware (it takes over at power-on)")
     for name in ("modules", "delete", "select", "safe", "logs"):
         c = sub.add_parser(name)
         if name in ("delete", "select"):
