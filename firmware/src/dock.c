@@ -28,7 +28,9 @@
  *              start (HOME held: fm1-dock stays; two starts without a power cycle between: fm1-dock
  *              stays). It is written as an update writes, encrypted with the chip key. One that
  *              keeps no flash data (HB_F_BOOT_NODATA: FM-1 SID) leaves the deployed modules in. */
+#ifndef APP_NAME                                /* (tools/build.py --app-name: a solo app's) */
 #define APP_NAME "FM1-DOCK"
+#endif
 #define CV_MAX (240u * 96u)
 #define APP_FAULT_HOOK hb_fault
 #define APP_EARLY_INIT hb_early_init
@@ -180,7 +182,7 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     img = f->code_size + f->data_size + f->rt_size;
     if (f->base != sl->at + io || f->code_size > sl->size || img > sl->size - io ||
-        f->desc + sizeof(hb_module_t) > f->code_size || (f->desc & 3u))
+        f->desc + HB_DESC_MIN > f->code_size || (f->desc & 3u))
         return M_BAD_HEAD;
     if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return M_TOO_BIG;
@@ -190,6 +192,8 @@ static uint32_t check_module(const hb_slot_t *sl, uint32_t lo, uint32_t hi)   /*
     if (c != f->crc)
         return M_BAD_CRC;
     if (((const hb_module_t *)(f->base + f->desc))->abi != HB_ABI)
+        return M_BAD_HEAD;
+    if ((((const hb_module_t *)(f->base + f->desc))->flags & HB_F_DATA) && f->desc + sizeof(hb_module_t) > f->code_size)
         return M_BAD_HEAD;
     return M_OK;
 }
@@ -277,6 +281,7 @@ static void add_boot(const hb_slot_t *sl)
     hb_log(e->name);
 }
 
+static uint32_t dt_write(const hb_slot_t *e, uint32_t n);
 static void scan_slots(void)
 {
     const hb_slot_t *t = (const hb_slot_t *)FM1_XIP(HB_TABLE_AT);
@@ -289,6 +294,22 @@ static void scan_slots(void)
     mods[0].key = name_key("(built in)");       /* its own settings, apart from a slot of the same name */
     n_mods = 1;
     dt_load();
+#ifdef HB_BOOT_SLOT
+#define BOOT_GONE(b) (check_boot(b) == M_BAD_HEAD)
+#else
+#define BOOT_GONE(b) 1                          /* (a release has no boot slot: an old entry goes) */
+#endif
+    if (dt_boot() && BOOT_GONE(dt_boot()) && t[0].magic == HB_SLOT_MAGIC) {
+        /* an install wrote a package (its slot table) where the boot firmware was: it is gone, and
+         * deleting it by name could not find its name any more. The table forgets it, so the
+         * package's own modules (the image's) run */
+        static hb_slot_t e[HB_SLOTS];
+        uint32_t m, k = (uint32_t)(dt_boot() - dt.s);
+        for (i = m = 0; i < dt.n; i++)
+            if (i != k) e[m++] = dt.s[i];
+        hb_log_u32("boot firmware gone (an install, or a release): forgotten", dt_write(e, m));
+        dt_load();
+    }
     for (i = 0; i < HB_SLOTS && !dt_boot() && t[i].magic == HB_SLOT_MAGIC; i++)
         add_slot(&t[i], K_IMAGE, HB_AREA_LO, HB_AREA_HI);   /* (a boot firmware is where the image's were) */
     for (i = 0; i < dt.n; i++)
@@ -788,8 +809,12 @@ static void hb_early_init(void)
 
 static struct { uint8_t st, n, d[2]; } din;      /* the parser: running status, data bytes so far */
 #define DF_MAX 640u                             /* a SysEx frame (the 7-bit bytes between F0 and F7), as usb.c's */
-static uint8_t df_usb[DF_MAX], df_din[DF_MAX];
-static uint32_t df_usb_n, df_din_n, din_sx;    /* a frame waiting: its length; din_sx: 1 + bytes so far */
+#define DF_USB_Q 4u                             /* USB frames waiting: a sender that does not wait for each answer, or
+                                                 * one whose frame comes while the main loop is long (a flash write) */
+static uint8_t df_usb[DF_USB_Q][DF_MAX], df_din[DF_MAX];
+static uint32_t df_usb_len[DF_USB_Q], df_usb_r, df_usb_w;
+#define df_usb_n (df_usb_w - df_usb_r)          /* USB frames waiting */
+static uint32_t df_din_n, din_sx;               /* a DIN frame waiting: its length; din_sx: 1 + bytes so far */
 static int din_get(uint8_t *st_, uint8_t *d1, uint8_t *d2)
 {
     for (;;) {
@@ -929,11 +954,12 @@ static uint32_t find_key(uint32_t k)
  * pack7 as ota.c's). Over USB each one is answered (cmd | 0x40, the same seq, a status first);
  * over DIN nothing comes back, the sender paces itself (tools/hbdeploy.py). */
 enum { D_HELLO = 0x01, D_LIST = 0x02, D_BEGIN = 0x10, D_DATA = 0x11, D_COMMIT = 0x12, D_ABORT = 0x13,
-       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_RUN = 0x30, D_RESULT = 0x31 };
+       D_DELETE = 0x14, D_LOG = 0x20, D_SAFE = 0x21, D_SELECT = 0x22, D_MODULE = 0x23, D_RUN = 0x30, D_RESULT = 0x31 };
 enum { D_OK, D_BAD_CRC, D_BAD_HEAD, D_TOO_BIG, D_NO_SPACE, D_FLASH, D_VERIFY, D_MISSING, D_IDLE, D_NOT_FOUND,
-       D_BAD_MSG };
+       D_BAD_MSG, D_REFUSED };
 static const char *const D_TXT[] = {"DONE", "BAD CRC", "BAD HEADER", "TOO BIG", "NO SPACE", "FLASH ERROR",
-                                    "VERIFY FAILED", "DATA MISSING", "NOT STARTED", "NOT FOUND", "BAD MESSAGE"};
+                                    "VERIFY FAILED", "DATA MISSING", "NOT STARTED", "NOT FOUND", "BAD MESSAGE",
+                                    "REFUSED"};
 #define DT_MAGIC 0x54444248u                    /* "HBDT" */
 #define RX_BUF ((uint8_t *)HB_MOD_RAM)
 #define RX_MAX HB_MOD_RAM_SIZE                  /* (less than DP_HI - DP_LO) */
@@ -1060,7 +1086,7 @@ static uint32_t d_commit(uint32_t *key)
     io = (sizeof *f + 4u * f->n_relocs + 255u) & ~255u;
     isz = f->code_size + f->data_size + f->rt_size;
     total = io + isz;
-    if (total > rx.size || isz < 4u || f->desc + sizeof(hb_module_t) > f->code_size || (f->desc & 3u))
+    if (total > rx.size || isz < 4u || f->desc + HB_DESC_MIN > f->code_size || (f->desc & 3u))
         return D_BAD_HEAD;
     if (f->data_size + f->bss_size > HB_MOD_RAM_SIZE || f->rt_size > HB_MOD_RT_SIZE)
         return D_TOO_BIG;
@@ -1196,9 +1222,19 @@ static uint32_t boot_begin(const uint8_t *h)    /* chunk 0 is a boot firmware's 
     static hb_slot_t e[HB_SLOTS];
     const hb_file_t *f = (const hb_file_t *)h;
     uint32_t i, n;
+#ifndef HB_BOOT_SLOT
+    (void)e; (void)f; (void)i; (void)n;
+    hb_log("deploy: this build takes no boot firmware (tools/build.py --boot-slot)");
+    return D_BAD_HEAD;
+#endif
     if (f->magic != HB_MAGIC || f->abi != HB_ABI || f->n_relocs || f->desc || f->base != FM1_XIP(HB_BOOT_IMG) ||
         f->code_size + 256u != rx.size || rx.size > HB_BOOT_HI - BOOT_AT)
         return D_BAD_HEAD;
+    for (i = 0; i < n_mods; i++)                /* a module's name: picking one would start the other (2026-10-25) */
+        if (mods[i].kind != K_BOOT && mods[i].key == name_key(f->name)) {
+            hb_log("deploy: a boot firmware may not have a module's name");
+            return D_BAD_HEAD;
+        }
     for (i = n = 0; i < dt.n; i++)
         if (dt.s[i].magic != BOOT_MAGIC) {
             if (!(f->flags & HB_F_BOOT_NODATA))
@@ -1357,10 +1393,11 @@ static uint32_t pr_head(uint8_t *r)             /* the result's summary, r[1..27
 
 static int hb_sysex(const uint8_t *p, uint32_t n)   /* platform_poll: a USB frame, kept for the main loop */
 {
-    if (n < 5u || n > DF_MAX || p[0] != 0x7Du || p[1] != 0x48u || p[2] != 0x42u || df_usb_n)
+    if (n < 5u || n > DF_MAX || p[0] != 0x7Du || p[1] != 0x48u || p[2] != 0x42u || df_usb_n >= DF_USB_Q)
         return 0;
-    memcpy(df_usb, p, n);
-    df_usb_n = n;
+    memcpy(df_usb[df_usb_w % DF_USB_Q], p, n);
+    df_usb_len[df_usb_w % DF_USB_Q] = n;
+    df_usb_w++;
     return 1;
 }
 
@@ -1384,8 +1421,8 @@ static void d_reply(uint32_t cmd, uint32_t seq, const uint8_t *p, uint32_t n)
 /* the frame waiting (USB first); 1: the module or the screen changed */
 static uint32_t deploy_frame(void)
 {
-    uint32_t usb_src = df_usb_n != 0, n = usb_src ? df_usb_n : df_din_n, len, cmd, seq, i, k, ch = 0;
-    const uint8_t *p = usb_src ? df_usb : df_din;
+    uint32_t usb_src = df_usb_n != 0, n = usb_src ? df_usb_len[df_usb_r % DF_USB_Q] : df_din_n, len, cmd, seq, i, k, ch = 0;
+    const uint8_t *p = usb_src ? df_usb[df_usb_r % DF_USB_Q] : df_din;
     uint8_t r[48];
     uint32_t rn = 1;
     char name[24];
@@ -1399,7 +1436,7 @@ static uint32_t deploy_frame(void)
     } else {
         len -= 4u;
     }
-    if (usb_src) df_usb_n = 0; else df_din_n = 0;
+    if (usb_src) df_usb_r++; else df_din_n = 0;   /* (unpacked into d_msg: its slot is free) */
     if (cmd == D_BEGIN || cmd == D_DELETE || cmd == D_SELECT) {
         for (i = 0; i < 23u; i++) name[i] = i + (cmd == D_BEGIN ? 8u : 0u) < len ? (char)d_msg[i + (cmd == D_BEGIN ? 8u : 0u)] : 0;
         name[23] = 0;
@@ -1583,6 +1620,18 @@ static uint32_t deploy_frame(void)
         rn = 2;
         ch = 1;
         break;
+    case D_MODULE: {                            /* [payload]: to the module playing (its data(): a tune for FM-1 SID) */
+        const hb_module_t *m = hb_active;
+        int rc;
+        if (rx.on || !m || !(m->flags & HB_F_DATA) || !m->data) { r[0] = D_NOT_FOUND; break; }
+        if (len > HB_DATA_MAX) { r[0] = D_TOO_BIG; break; }
+        rc = m->data(d_msg, len);
+        r[0] = rc ? D_REFUSED : D_OK;
+        r[1] = (uint8_t)rc;
+        r[2] = (uint8_t)cur;
+        rn = 3;
+        break;
+    }
     default:
         if (!r[0]) r[0] = D_BAD_MSG;
         break;
@@ -1621,7 +1670,22 @@ static uint32_t deploy_tick(void)               /* the main loop's: a frame, the
 static volatile uint32_t GO[2] __attribute__((section(".hbgo")));   /* [magic, starts], app.ld: above a boot firmware's
                                                  * NOINIT (Felucca's ends at 0x01C7FCD0), below the SPL's area */
 #define GO_MAGIC 0x4F474248u                    /* "HBGO" */
-static uint32_t boot_why;                       /* why fm1-dock stayed: 1 a key held, 2 started twice, 3 it fails its check */
+static uint32_t boot_why;                       /* why fm1-dock stayed: 1 a key held, 2 started twice, 3 it fails its check,
+                                                 * 4 switched off twice while STARTING, 5 its name is a module's */
+/* the keys at power-on, read for long enough (50 ms missed them on a real FM-1, 2026-10-25): any
+ * of HOME, OCT-, OCT+ held */
+static int boot_keys(uint32_t ms)
+{
+    uint32_t t0 = fm1_ticks();
+    fm1_input_init();
+    do {
+        fm1_wdt_feed();
+        fm1_input_scan();
+        if (fm1_in.buttons & (1u << BTN_HOME | 1u << BTN_OCT_DOWN | 1u << BTN_OCT_UP))
+            return 1;
+    } while ((uint32_t)(fm1_ticks() - t0) < ms * 1000u * FM1_TICKS_PER_US);
+    return 0;
+}
 static void hb_boot_now(void)                   /* the boot firmware is the selected one: a reboot hands over */
 {
     GO[0] = GO_MAGIC;
@@ -1632,6 +1696,10 @@ static void hb_boot_hook(uint32_t p3)
 {
     const hb_slot_t *b;
     uint32_t t0;
+#ifndef HB_BOOT_SLOT                            /* a release takes no boot firmware (tools/build.py --boot-slot: a developer's) */
+    (void)p3; (void)b; (void)t0;
+    return;
+#endif
     if (GO[0] != GO_MAGIC || ((p3 & 1u) && !(p3 & (4u | 0x40u)))) {   /* a power-on */
         GO[0] = GO_MAGIC;
         GO[1] = 0;
@@ -1644,23 +1712,58 @@ static void hb_boot_hook(uint32_t p3)
     dt_load();
     if (!(b = dt_boot()) || name_key(((const hb_file_t *)b->at)->name) != st.sel_key)
         return;
-    t0 = fm1_ticks();
-    fm1_input_init();
-    do {
-        fm1_wdt_feed();
-        fm1_input_scan();
-    } while ((uint32_t)(fm1_ticks() - t0) < 50u * 1000u * FM1_TICKS_PER_US);
-    if (fm1_in.buttons & (1u << BTN_HOME | 1u << BTN_OCT_DOWN | 1u << BTN_OCT_UP)) {
+    for (t0 = 0; t0 < dt.n; t0++)               /* a module of the same name: that is the one picked, never the boot */
+        if (dt.s[t0].magic != BOOT_MAGIC && name_key(((const hb_file_t *)dt.s[t0].at)->name) == st.sel_key) {
+            boot_why = 5;
+            return;
+        }
+    if (boot_keys(500u)) {
         boot_why = 1;                           /* HOME: fm1-dock; OCT- the rescue; OCT+ the safe boot */
         return;
     }
     if (GO[1] >= 2u) { boot_why = 2; return; }
     if (check_boot(b) != M_OK) { boot_why = 3; return; }
+    /* a way back that needs no key and survives a firmware whose USB is dead: switched off while
+     * STARTING shows, twice in a row, the third start stays in fm1-dock (the count is in flash) */
+    if (st.spare[0] >= 2u) {
+        st.spare[0] = 0;
+        store_flush();
+        boot_why = 4;
+        return;
+    }
+    st.spare[0]++;
+    store_flush();
+    lcd_init();
+    lcd_fill(0, 0, 240, 240, C_BLACK);
+    draw_text_box(0, 56, 240, &FONT_S, "STARTING", C_WHITE, 1);
+    draw_text_box(0, 80, 240, &FONT_S, ((const hb_file_t *)b->at)->name, C_ACC, 1);
+    draw_text_box(0, 132, 240, &FONT_S, "HOLD HOME: " APP_NAME, C_OFF, 1);
+    draw_text_box(0, 156, 240, &FONT_S, "OR SWITCH OFF NOW, TWICE", C_OFF, 1);
+    lcd_sync();
+    t0 = boot_keys(1500u);
+    st.spare[0] = 0;
+    store_flush();
+    if (t0) {
+        boot_why = 1;
+        return;
+    }
     GO[1]++;
     bootguard_clear(&bootguard);                /* (its own boot guard counts its own boots) */
     fm1_irq_off();
     fm1_wdt_feed();
     ((void (*)(uint32_t))FM1_XIP(HB_BOOT_IMG))(fm1_boot_param());
+}
+
+/* OCT- held as fm1-dock starts (its first 600 ms, the keys scanned by the timer): the USB rescue,
+ * where the platform's 50 ms look at power-on missed it. Only the updater from here on. */
+static void rescue_late(void)
+{
+    hb_log("OCT- held at power-on: the USB rescue");
+    fm1_audio_stop();
+    fm1_irq_off();
+    usb_detach();
+    fm1_delay_ms(30);
+    recovery_main();
 }
 
 static void play_note(uint32_t ch, uint32_t key, uint32_t vel)
@@ -1717,6 +1820,10 @@ static void app_main(void)
     if (safe)
         hb_log("safe boot (OCT+): the sine only, the radio not started");
     k = safe ? 0 : find_key(st.sel_key);
+#ifdef HB_SOLO
+    if (!safe && !st.sel_key && n_mods > 1u && mods[1].kind == K_IMAGE)
+        k = 1;                                  /* a solo app's new install (nothing picked yet): its module */
+#endif
     if (k && mods[k].kind == K_BOOT) {          /* the boot firmware is the one, but fm1-dock stayed: the sine */
         hb_log_u32("boot firmware not started", boot_why);
         k = 0;
@@ -1733,6 +1840,8 @@ static void app_main(void)
         uint8_t s, d1, d2;
         const hb_module_t *m;
         platform_poll();
+        if (fm1_ms < 600u && (fm1_in.buttons >> BTN_OCT_DOWN & 1u))
+            rescue_late();                      /* (OCT- held from power-on) */
         m = hb_active;
         panel = m && (m->flags & HB_F_PANEL) && m->ui;
         screen = m && (m->flags & HB_F_SCREEN);

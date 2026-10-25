@@ -29,6 +29,8 @@
 #define HB_F_PANEL  2u                          /* all keys and buttons are the module's, OCT- / OCT+ / HOME too, as
                                                  * events; the host plays no note itself. HOME held 1.5 s alone opens
                                                  * the picker (the module gets the HOME release first) */
+#define HB_F_DATA   4u                          /* the descriptor has data(): what the computer sends the module
+                                                 * (tools/dock.py's MODULE frames) reaches it */
 
 /* ui() events: kind in the top byte, the id below; arg is the encoder's clicks */
 enum {
@@ -147,7 +149,19 @@ typedef struct hb_module {
     uint32_t n_params;
     uint32_t flags;                             /* HB_F_SCREEN, HB_F_PANEL */
     void (*midi)(uint32_t st, uint32_t d1, uint32_t d2);   /* 0: note() / cc() only; else every channel message */
+    /* HB_F_DATA only (a descriptor without the flag ends at midi): a MODULE frame's payload from the
+     * computer, up to HB_DATA_MAX bytes, in the main loop; 0: taken, else the module's own error (1..255),
+     * which goes back to the computer. Nothing of it is kept by the host */
+    int (*data)(const uint8_t *p, uint32_t n);
 } hb_module_t;
+#define HB_DESC_MIN ((uint32_t)__builtin_offsetof(hb_module_t, data))   /* a descriptor without HB_F_DATA */
+#define HB_DATA_MAX 512u
+/* A file to a module (tools/dock.py send, the pages' WebMIDI): data() gets 'B' [size u32][arg u32] (a
+ * file begins: arg is the module's, FM-1 SID's subtune), then 'D' [at u32][bytes] in order from at 0 (the
+ * computer sends a chunk again when no answer came: one already taken is taken again), then 'E' (all of it
+ * is there). Into the module's RAM only: the flash is the host's, and nothing of the file outlives the
+ * module's switching away. */
+enum { HB_FILE_BEGIN = 'B', HB_FILE_DATA = 'D', HB_FILE_END = 'E' };
 
 /* A module in flash (and in a .dock file; .hrbr before 0.5): this header, the relocations, then the image.
  *   image: .text + .rodata (code_size), .data's initial values (data_size), .ram_text (rt_size)

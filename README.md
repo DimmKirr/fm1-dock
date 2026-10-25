@@ -52,6 +52,14 @@ deployed modules, settings and presets. Installing firmware is at your own risk.
 | **OCT+ at power-on** | safe start: the sine only (and the radio not started) |
 | **OCT− at power-on** | the USB rescue: no sound, only the updater |
 
+Hold the keys from before you switch on until the screen shows something (half a second is read).
+
+**A whole firmware in the boot slot** (`tools/hbboot.py`, `tools/dock.py deploy --boot`: a developer's
+tool) takes over the FM-1 at every power-on, with its own USB. If its USB does not answer, the installers
+cannot reach the FM-1 while it runs, so there are two ways back to fm1-dock that need nothing from it:
+hold **HOME** while switching on (or while **STARTING** shows), or **switch off while STARTING shows,
+twice in a row**: the third start stays in fm1-dock. Only deploy one you know answers the installers.
+
 fm1-dock starts whatever played last. A module that crashes twice in a row is skipped at boot until you pick it again;
 one that renders slower than real time is stopped and the sine plays, so USB and the updater keep working.
 
@@ -66,7 +74,12 @@ has every call the host gives it.
 python3 tools/hbmod.py modules/mysynth                                  # -> build/modules/mysynth.dock
 uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock   # into the FM-1, running
 uv run --with python-rtmidi tools/dock.py modules | logs | select NAME | delete NAME
+uv run --with python-rtmidi tools/dock.py send FILE [--arg N]           # a file into the RAM of the module playing
 ```
+
+A module that sets `HB_F_DATA` gets what the computer sends it in its `data()` call, never written to flash:
+[FM-1 SID](https://github.com/joakimeriksson/fm1-sid) takes a `.sid` that way and plays it at once
+(`dock.py send tune.sid`, or "Play on my FM-1" on its page).
 
 Or drop the `.dock` on the [console](https://joakimeriksson.github.io/fm1-dock/#console). A module has 272 KiB of RAM,
 16 KiB of RAM code, a settings record and flash banks for presets; a deploy file is up to 272 KiB.

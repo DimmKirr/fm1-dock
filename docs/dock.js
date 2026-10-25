@@ -5,9 +5,9 @@
 //   replies  cmd | 0x40 (0x7F: refused), the same seq; the payload starts with a status byte
 
 export const CMD = { HELLO: 0x01, LIST: 0x02, BEGIN: 0x10, DATA: 0x11, COMMIT: 0x12, ABORT: 0x13, DELETE: 0x14,
-  LOG: 0x20, SAFE: 0x21, SELECT: 0x22, RUN: 0x30, RESULT: 0x31 };
+  LOG: 0x20, SAFE: 0x21, SELECT: 0x22, MODULE: 0x23, RUN: 0x30, RESULT: 0x31 };
 export const STATUS = ["done", "bad CRC", "bad header", "too big", "no space", "flash error", "verify failed",
-  "data missing", "not started", "not found", "bad message"];
+  "data missing", "not started", "not found", "bad message", "refused"];
 export const STATE = ["ok", "bad CRC", "bad header", "too big", "crashed", "init failed", "too slow"];
 export const KIND = ["built in", "image", "deployed", "boot"];
 export const PROBE_STATE = ["none", "running", "done", "crashed", "hung"];

@@ -199,12 +199,14 @@ def build_module(d):
         inc = "/opt/jieli/pi32v2/include" if build.use_docker() else str(build.toolchain() / "pi32v2/include")
         flags += ["-isystem", inc]
     # (object names from the path below the module, so resid/sid.cc and sid.c do not collide; a file
-    # outside it by its path from the module's parent: ../src/sid.c and ../ext/resid-0.16/sid.cc neither)
+    # outside it by its path from the nearest directory above the module that holds it: ../src/sid.c
+    # and ../ext/resid-0.16/sid.cc neither, nor ../../src/sid.c from a module one level deeper)
     def oname(s):
         if s.is_relative_to(base_dir):
             return "_".join(s.relative_to(base_dir).with_suffix("").parts)
-        if s.is_relative_to(base_dir.parent):
-            return "up_" + "_".join(s.relative_to(base_dir.parent).with_suffix("").parts).replace(".", "_")
+        for up, anc in enumerate(base_dir.parents, 1):
+            if s.is_relative_to(anc):
+                return "up" * up + "_" + "_".join(s.relative_to(anc).with_suffix("").parts).replace(".", "_")
         return s.stem
     objs = [out / (oname(s) + ".o") for s in srcs]
     build.tc_all(*[("cxx", *flags, *cfg["cxxflags"].split(), "-c", s, "-o", o) if s.suffix == ".cc" else

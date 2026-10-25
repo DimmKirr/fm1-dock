@@ -5,6 +5,10 @@
 loader and an installable .fwsc package.
 
   tools/build.py [--release X.Y[-suffix]] [--modules cs1,scintilla,obervave] [--no-package]
+  tools/build.py --modules PATH/TO/MODULE --name NAME --app-name "NAME" --identity FM-1_9NN [--pack FILE]
+      a solo app: fm1-dock with one module of its own (a directory anywhere: HB_MOUNT for Docker),
+      its own name for the outputs and the crash / rescue screens, its own package identity, and
+      FILE (the module's data: FM-1 SID's tune pack) right after the modules, where the module finds it
 
 Outputs in build/: fm1-dock.bin (the app: the host, the slot table, the modules), fm1-dock_xip.bin
 (the same as fm1-emu / fm1-live --bin take it), modules/*.dock, loader/ota.bin (update loader),
@@ -165,7 +169,7 @@ def build_loader():
 
 # ---- app
 
-APP = "fm1-dock"                    # the outputs' name (build/fm1-dock.bin, .fwsc, .syms, ...)
+APP = "fm1-dock"                    # the outputs' name (--name) (build/fm1-dock.bin, .fwsc, .syms, ...)
 HOST = "dock"
 PACKAGE = ["cs1", "scintilla", "obervave"]   # the modules in the package (all of modules/ no longer fits its app slot)                       # the host's source: firmware/src/dock.c
 SLOT_TABLE = 0x02030000             # firmware/src/dock.c HB_TABLE_AT (flash 0x34000)
@@ -176,7 +180,8 @@ HX_SIZE = 0xA000
 
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ifirmware/gen", "-Ifirmware/dock",
-             f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"']
+             f'-DFELUCCA_ID="{PRODUCT}"', f'-DAPP_VER="{VERSION or "0.0"}"', *(["-DHB_BOOT_SLOT=1"] if BOOT_SLOT else []),
+             *([f'-DAPP_NAME="{APP_NAME}"'] if APP_NAME else []), *(["-DHB_SOLO=1"] if SOLO else [])]
     cmds = [("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
             ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
             ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
@@ -338,8 +343,14 @@ def mmio_check():
     return errors
 
 
+BOOT_SLOT = False                   # --boot-slot: the boot slot is in (a developer's build)
+APP_NAME = None                     # --app-name: the crash and rescue screens' name (dock.c's own: FM1-DOCK)
+SOLO = False                        # --name: a solo app (a new install starts its module, not the sine; no BLE-MIDI:
+                                    # its module and its data take HX's place)
+
+
 def main():
-    global PRODUCT, VERSION
+    global PRODUCT, VERSION, BOOT_SLOT, APP, APP_NAME, SOLO
     ap = argparse.ArgumentParser()
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_95Y, version string X.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
@@ -348,13 +359,27 @@ def main():
     ap.add_argument("--no-package", action="store_true", help="no .fwsc (and no SDK needed): the app and its XIP image")
     ap.add_argument("--no-ble", action="store_true", help="no BLE-MIDI (HX) in the image: no BLUETOOTH line, its "
                     "40 KiB free for modules")
+    ap.add_argument("--boot-slot", action="store_true", help="a developer's build: it takes a whole firmware into its boot "
+                    "slot (tools/hbboot.py), which takes over at power-on; a release has none")
+    ap.add_argument("--name", help="the outputs' name (build/NAME.bin, .fwsc, .syms): a solo app's")
+    ap.add_argument("--app-name", help="the name on the crash and USB rescue screens")
+    ap.add_argument("--identity", help="the package identity (FM-1_9NN) in place of fm1-dock's")
+    ap.add_argument("--pack", type=Path, help="data for the module, right after the modules (in the app slot)")
     a = ap.parse_args()
+    BOOT_SLOT = a.boot_slot
+    APP = a.name or APP
+    APP_NAME = a.app_name
+    SOLO = bool(a.name)
+    if a.identity:
+        if not re.fullmatch(r"FM-1_9\d\d", a.identity):
+            raise SystemExit(f"--identity {a.identity}: FM-1_9NN (the installers' loader wants 9NN)")
+        PRODUCT = a.identity
     name = f"{APP}.fwsc"
     if a.release:                   # one digit each: the identity has room for two (X.Y; a .Z only in the text)
         m = re.fullmatch(r"(\d)\.(\d)(\.\d)?(-[A-Za-z0-9]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y, X.Y.Z or X.Y-suffix, one digit each")
-        PRODUCT = "FM-1_95" + m[2]
+        PRODUCT = a.identity or "FM-1_95" + m[2]
         VERSION = m[1] + "." + m[2] + (m[3] or "")
         name = f"{APP}-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
@@ -365,7 +390,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     import hbmod
     every = sorted(d for d in (SRC / "modules").iterdir() if d.is_dir() and d.name != "lib" and any(d.glob("*.c")))
-    dirs = [SRC / "modules" / d for d in (a.modules or ",".join(PACKAGE)).split(",")]
+    dirs = [Path(d).resolve() if "/" in d else SRC / "modules" / d for d in (a.modules or ",".join(PACKAGE)).split(",")]
     ota = build_loader()
     host, syms, dis, rt, hx = build_app()
     errors, notes = check(host, syms, dis, rt)
@@ -380,12 +405,19 @@ def main():
     if errors:
         raise SystemExit("build: checks failed")
     mods = [hbmod.build_module(d) for d in dirs]
-    for d in every:                             # the others as files to deploy (tools/dock.py deploy, the tests)
+    for d in every if not a.name else []:       # the others as files to deploy (tools/dock.py deploy, the tests)
         if d not in dirs:
             hbmod.build_module(d)
-    if a.no_ble:
+    if (a.pack or a.name) and hx and not a.no_ble:   # (a solo app: its module and its data take HX's place)
+        print("note     a solo app (--name / --pack): no BLE-MIDI in this image")
+    if a.no_ble or a.pack or a.name:
         hx = b""
     img = pack_slots(host, mods, hx)
+    if a.pack:                                  # the module's data after the last module (its own end + a scan)
+        img += b"\xff" * (-len(img) % 4) + a.pack.read_bytes()
+        img += b"\xff" * (-len(img) % 4)
+        if len(img) > APP_SLOT:
+            raise SystemExit(f"app {len(img)} B with {a.pack}: more than the app slot ({APP_SLOT})")
     (OUT / f"{APP}.bin").write_bytes(img)
     (OUT / f"{APP}_xip.bin").write_bytes(b"\0" * 0x120 + img)
     print(f"host     {OUT / 'host.bin'}  {len(host)} B of {SLOT_TABLE - APP_XIP}")
