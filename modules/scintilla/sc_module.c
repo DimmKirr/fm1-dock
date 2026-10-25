@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Scintilla: the Elka Synthex engine of synthex-web, ported to integers (joakimeriksson/scintilla-fm1),
- * as a harbor module: its own app (app/scintilla.c, from take.py) with its 80 presets, pages, joystick
+ * as a fm1-dock module: its own app (app/scintilla.c, from take.py) with its 80 presets, pages, joystick
  * and MIDI. The host runs app_init() at init and app_loop() from draw(); the engine renders in the
- * host's audio interrupt. HOME held 1.5 s alone opens harbor's module list (a short HOME is
+ * host's audio interrupt. HOME held 1.5 s alone opens fm1-dock's module list (a short HOME is
  * Scintilla's). */
 #include "sc_platform.h"
 #include "app/scintilla.c"

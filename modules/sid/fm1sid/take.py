@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 """modules/sid/fm1sid.c from FM-1 SID's firmware/main.c: its synth mode's code by line ranges, the
-few changes for harbor checked one by one (each must match exactly once).
+few changes for fm1-dock checked one by one (each must match exactly once).
     modules/sid/fm1sid/take.py ~/work/fm1-emu/fm1-sid/firmware/main.c     (fm1-emu 7856393)"""
 import sys
 from pathlib import Path
@@ -21,7 +21,7 @@ def sub(text, old, new):
 
 synth_state = rng(126, 167)
 synth_state = sub(synth_state, "#define HALF_CYC 2860u                      /* SID cycles in a 128-frame half buffer, rounded up */",
-                  "#define HALF_CYC 5720u                      /* harbor: SID cycles in a 256-frame block at 44 100 Hz, rounded up */")
+                  "#define HALF_CYC 5720u                      /* fm1-dock: SID cycles in a 256-frame block at 44 100 Hz, rounded up */")
 on_write = rng(170, 180)
 synth = rng(191, 396)
 synth = sub(synth, "    if (engine)\n        return own.v[voice].env;\n", "")
@@ -51,7 +51,7 @@ synth2 = sub(synth2, """    running = 0;
         sid_init(&own, model ? SID_8580 : SID_6581, SID_CLOCK_PAL, FS_HZ);
     else
         rs_init(model, 985248.0, 24000000.0 / 544.0);""", """    running = 0;
-    block_wait();                           /* harbor: the block that may be running ends */
+    block_wait();                           /* fm1-dock: the block that may be running ends */
     mode = 1;
     rs_init(model, 985248.0, (double)FS_HZ);""")
 

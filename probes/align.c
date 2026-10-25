@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* ALIGN: unaligned loads and stores on the FM-1 and in fm1-emu: what each one reads, or that it
- * faults (the record "try" before each case says which one ran last). RAM, then XIP (harbor's
+ * faults (the record "try" before each case says which one ran last). RAM, then XIP (fm1-dock's
  * own code). argument: [first case] (0..9) */
 #include "probe.h"
 

@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* OBERVAVE: zvenson's OberVave 3.0 (github.com/zvenson/obervave, bcddc4b), an 8-voice analog-style
- * polysynth on four tracks with a mixer, effects and a step sequencer, as a harbor module: its own app
- * (obervave/obervave.c, split by take.py: app_init, app_loop) on harbor's host (obervave/platform.c,
+ * polysynth on four tracks with a mixer, effects and a step sequencer, as a fm1-dock module: its own app
+ * (obervave/obervave.c, split by take.py: app_init, app_loop) on fm1-dock's host (obervave/platform.c,
  * from obv_platform.inc). Its voices, effects and sequencer render in the host's audio interrupt (as on
- * Dinghy, one core); its panel, screen and MIDI are the host's. HOME held 1.5 s alone opens harbor's
+ * Dinghy, one core); its panel, screen and MIDI are the host's. HOME held 1.5 s alone opens fm1-dock's
  * module list. */
 #include "obervave/obervave.c"
 

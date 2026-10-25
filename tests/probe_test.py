@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Probes in fm1-emu (tools/probe.py): sent into the DIN jack of a running harbor, run from RAM.
+"""Probes in fm1-emu (tools/probe.py): sent into the DIN jack of a running fm1-dock, run from RAM.
   tools/build.py && tests/probe_test.py
   - HELLO: the argument back, .data / .bss where the host put them, a relocated pointer, 24 ticks / us;
   - EXEC: instruction bytes assembled on the spot, the registers in and out;
@@ -45,18 +45,18 @@ def main():
           f"{len(t)} cases; nop {t.get('nop_x8', {}).get('emu_cycles')} cycles, load from RAM "
           f"{t.get('ld_ram_x8', {}).get('emu_cycles')}, from flash {t.get('ld_xip_seq_x8', {}).get('emu_cycles')}")
 
-    sine = (SRC / "build" / "modules" / "sine.hrbr").read_bytes()
+    sine = (SRC / "build" / "modules" / "sine.dock").read_bytes()
     r = probe.run_emu(sine, b"", 500)
     check("run_refuses_module", r["state"] == "none", "RUN with a module's file: nothing runs")
     keys, done = hd.din_script(hello, 600)
     with __import__("tempfile").TemporaryDirectory() as wd:
-        import harbor
+        import dock
         import os
         (Path(wd) / "work").mkdir()
         env = dict(os.environ, FM1_BENCH_KEYS=",".join(keys), FM1_DUMPRAM=str(Path(wd) / "ram.bin"))
-        subprocess.run([str(harbor.live()), "--bin", str(SRC / "build" / "harbor_xip.bin"), "--shot",
+        subprocess.run([str(dock.live()), "--bin", str(SRC / "build" / "fm1-dock_xip.bin"), "--shot",
                               str(int(done) + 800)], cwd=wd, capture_output=True, text=True, env=env)
-        log = harbor.read_log((Path(wd) / "ram.bin").read_bytes())
+        log = dock.read_log((Path(wd) / "ram.bin").read_bytes())
     check("commit_refuses_probe", "deploy failed 00000002" in log and "deploy: written" not in log,
           "COMMIT with a probe's file: BAD HEADER, nothing written")
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")

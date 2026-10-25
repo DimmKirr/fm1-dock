@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""fm1-harbor's deploy protocol on the computer: a module file (.hrbr, tools/hbmod.py) into a running
-harbor over SysEx, and the other requests (the module list, delete, select, the sine, the log).
-The device side and the frame format: firmware/src/harbor.c, "deploys".
+"""fm1-dock's deploy protocol on the computer: a module file (.dock, tools/hbmod.py) into a running
+fm1-dock over SysEx, and the other requests (the module list, delete, select, the sine, the log).
+The device side and the frame format: firmware/src/dock.c, "deploys".
 
   frame    F0 7D 48 42 cmd seq pack7(payload + CRC-32 of the payload, little endian) F7
   replies  (USB only) cmd | 0x40, the same seq; the payload starts with a status byte
@@ -11,7 +11,7 @@ Over USB every frame is answered, and a chunk that gets no answer is sent again.
 (or a .syx file) nothing comes back: din_script() / the --blind sender leave the device time where
 it needs it (after BEGIN: the module stops; after COMMIT: the flash is written).
 
-The USB transport uses python-rtmidi (`uv run --with python-rtmidi tools/harbor.py ...`)."""
+The USB transport uses python-rtmidi (`uv run --with python-rtmidi tools/dock.py ...`)."""
 import struct
 import time
 import zlib
@@ -61,7 +61,7 @@ def frame(cmd, seq, payload=b""):
 
 
 def parse(msg):
-    """a reply: (cmd without 0x40, seq, payload), or None if it is not harbor's or is damaged"""
+    """a reply: (cmd without 0x40, seq, payload), or None if it is not fm1-dock's or is damaged"""
     msg = bytes(msg)
     if len(msg) < 7 or msg[0] != 0xF0 or msg[-1] != 0xF7 or msg[1:4] != MAN:
         return None
@@ -77,9 +77,9 @@ def name24(s):
 
 
 def module_info(blob):
-    """name, version and size from a .hrbr's header; refuses what is not one"""
+    """name, version and size from a .dock's header; refuses what is not one"""
     if len(blob) < 80 or struct.unpack_from("<I", blob)[0] != HRBR_MAGIC:
-        raise SystemExit("not a harbor module file (.hrbr)")
+        raise SystemExit("not a fm1-dock module file (.dock)")
     name = blob[12:36].split(b"\0")[0].decode("latin-1")
     (version,) = struct.unpack_from("<I", blob, 36)
     return name, version
@@ -132,10 +132,10 @@ class Port:
         try:
             import rtmidi
         except ImportError:
-            raise SystemExit("needs python-rtmidi: uv run --with python-rtmidi tools/harbor.py ...")
+            raise SystemExit("needs python-rtmidi: uv run --with python-rtmidi tools/dock.py ...")
         self.out = rtmidi.MidiOut()
         self.inp = None if blind else rtmidi.MidiIn()
-        want = [name] if name else ["Felucca", "HARBOR", "FM-1"]
+        want = [name] if name else ["Felucca", "FM1-DOCK", "HARBOR", "FM-1"]
         self.out.open_port(self._find(self.out, want))
         if self.inp:
             self.inp.open_port(self._find(self.inp, want))
@@ -180,7 +180,7 @@ class Port:
             for c, d in self.replies(seq, timeout):
                 if c == cmd or c == 0x3F:
                     return d
-        raise SystemExit(f"no answer from the FM-1 (cmd {cmd:#04x}): is harbor running, the port right?")
+        raise SystemExit(f"no answer from the FM-1 (cmd {cmd:#04x}): is fm1-dock running, the port right?")
 
 
 def status(d):
@@ -215,10 +215,10 @@ def deploy(p, blob, say=print):
     if not p.blind:
         h = hello(p)
         if h["abi"] != struct.unpack_from("<I", blob, 4)[0]:
-            raise SystemExit(f"the FM-1's harbor speaks ABI {h['abi']}, {name} was built for "
+            raise SystemExit(f"the FM-1's fm1-dock speaks ABI {h['abi']}, {name} was built for "
                              f"{struct.unpack_from('<I', blob, 4)[0]}: update one of them")
         if len(blob) > h["max_file"] and not is_boot(blob):
-            raise SystemExit(f"{name}: {len(blob)} B, harbor takes up to {h['max_file']} B")
+            raise SystemExit(f"{name}: {len(blob)} B, fm1-dock takes up to {h['max_file']} B")
         say(f"{name} v{version}, {len(blob)} B; the FM-1 has {h['free'] // 1024} KiB free "
             f"(largest gap {h['largest'] // 1024} KiB)")
     t0 = time.monotonic()

@@ -1,6 +1,6 @@
 // modules/sid/resid_glue.cc - reSID 0.16 (Dag Lem, GPL-2.0-or-later, resid/) for the SID module:
 // FM-1 SID's firmware/resid_glue.cc (fm1-emu 7856393), one chip in static storage, C entry points.
-// harbor: no allocator (fast sampling allocates nothing: the resampling path, never taken here,
+// fm1-dock: no allocator (fast sampling allocates nothing: the resampling path, never taken here,
 // would get no memory), and reSID's sid.h by its path (modules/sid/sid.h is FM-1 SID's own model's).
 // SPDX-License-Identifier: GPL-3.0-only
 #include "resid/sid.h"

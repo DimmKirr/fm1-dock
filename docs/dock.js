@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // fm1-dock's SysEx protocol in the browser (WebMIDI): what tools/hbdeploy.py and tools/probe.py do,
-// for the console on index.html. The device side: firmware/src/harbor.c, "deploys".
+// for the console on index.html. The device side: firmware/src/dock.c, "deploys".
 //   frame    F0 7D 48 42 cmd seq pack7(payload + CRC-32 of the payload, little endian) F7
 //   replies  cmd | 0x40 (0x7F: refused), the same seq; the payload starts with a status byte
 
@@ -87,8 +87,8 @@ export function parse(msg) {                    // a reply: {cmd, seq, d}, or nu
   return { cmd: msg[4] & ~0x40, seq: msg[5], d: d.subarray(0, d.length - 4) };
 }
 
-export function moduleInfo(blob) {              // a .hrbr's header (hb_file_t), or throws
-  if (blob.length < 80 || rd32(blob, 0) !== HRBR_MAGIC) throw new Error("not a fm1-dock module file (.hrbr)");
+export function moduleInfo(blob) {              // a .dock's header (hb_file_t), or throws
+  if (blob.length < 80 || rd32(blob, 0) !== HRBR_MAGIC) throw new Error("not a fm1-dock module file (.dock)");
   const flags = rd32(blob, 8);
   return { abi: rd32(blob, 4), flags, name: cstr(blob, 12, 36), version: rd32(blob, 36),
     code: rd32(blob, 40), data: rd32(blob, 44), bss: rd32(blob, 48), rt: rd32(blob, 52),
@@ -291,7 +291,7 @@ export function probeArg(s) {
   return cat(...s.split(",").filter((x) => x.trim()).map((x) => u32(Number(x.trim()) >>> 0)));
 }
 
-// harbor.syms (llvm-objdump -t): the code's symbols, for a PC
+// fm1-dock.syms (llvm-objdump -t): the code's symbols, for a PC
 export class Syms {
   constructor(text) {
     this.list = [];

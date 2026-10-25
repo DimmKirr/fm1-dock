@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""harbor's boot slot in fm1-emu (fm1-live --fwsc, --flash; its SFC model decrypts what harbor writes
+"""fm1-dock's boot slot in fm1-emu (fm1-live --fwsc, --flash; its SFC model decrypts what fm1-dock writes
 below the plain window): a whole firmware deployed over DIN, then power-ons from that flash.
-  tools/build.py && tests/boot_test.py BOOT.hrbr     (tools/hbboot.py: e.g. Felucca relinked)
+  tools/build.py && tests/boot_test.py BOOT.dock     (tools/hbboot.py: e.g. Felucca relinked)
   - install: the boot firmware into the DIN jack: written encrypted, read back through the SFC, in the table;
-  - boot: at power-on harbor hands over (the start counted), the firmware runs and plays a key;
-  - home: HOME held at power-on: harbor stays, the firmware in its list;
-  - damaged: a bit flipped in the firmware's flash: harbor stays (the CRC through the SFC);
+  - boot: at power-on fm1-dock hands over (the start counted), the firmware runs and plays a key;
+  - home: HOME held at power-on: fm1-dock stays, the firmware in its list;
+  - damaged: a bit flipped in the firmware's flash: fm1-dock stays (the CRC through the SFC);
   - no_modules: a module deploy is refused while a boot firmware is in (its data is where they go);
-  - delete: DELETE takes it out of the table: the next power-on is harbor's."""
+  - delete: DELETE takes it out of the table: the next power-on is fm1-dock's."""
 import os
 import shutil
 import struct
@@ -19,11 +19,11 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC / "tools"))
-import harbor  # noqa: E402
+import dock  # noqa: E402
 import hbdeploy as hd  # noqa: E402
 import hbmod  # noqa: E402
 
-FWSC = SRC / "build" / "harbor.fwsc"
+FWSC = SRC / "build" / "fm1-dock.fwsc"
 failures = []
 
 
@@ -38,14 +38,14 @@ def live(ms, keys, flash, wd):
     (wd / "keys.txt").write_text(",".join(keys))
     ram = wd / "ram.bin"
     env = dict(os.environ, FM1_BENCH_KEYS="@" + str(wd / "keys.txt"), FM1_DUMPRAM=str(ram))
-    r = subprocess.run([str(harbor.live()), "--fwsc", str(FWSC), "--shot", str(ms), "--flash", str(flash)],
+    r = subprocess.run([str(dock.live()), "--fwsc", str(FWSC), "--shot", str(ms), "--flash", str(flash)],
                        cwd=wd, capture_output=True, text=True, env=env)
     if r.returncode:
         raise SystemExit(f"fm1-live: {r.stdout[-1500:]}{r.stderr[-1500:]}")
     out = r.stdout + r.stderr
     peak = int(out.split("audio peak over the last 0.5 s: ")[1].split()[0]) if "audio peak" in out else 0
     ram = ram.read_bytes()
-    return harbor.read_log(ram), struct.unpack_from("<2I", ram, 0x7FD40), peak
+    return dock.read_log(ram), struct.unpack_from("<2I", ram, 0x7FD40), peak
 
 
 def main():
@@ -67,12 +67,12 @@ def main():
             return live(ms, keys, f, wd) + (f,)
 
         log, go, peak, _ = run("boot", ["2500:21", "3500:21^"])
-        check("boot", go[1] == 1 and log.startswith("no harbor state") and peak > 500,
-              f"handed over (start {go[1]}), {name} runs (harbor's NOINIT is its now) and plays (peak {peak})")
+        check("boot", go[1] == 1 and log.startswith("no fm1-dock state") and peak > 500,
+              f"handed over (start {go[1]}), {name} runs (fm1-dock's NOINIT is its now) and plays (peak {peak})")
 
         log, go, peak, _ = run("home", ["0:8", "1500:8^", "2500:21", "3500:21^"])
         check("home", go[1] == 0 and "boot firmware not started 00000001" in log and name in log and peak > 500,
-              "HOME held at power-on: harbor stays, the sine plays, the boot firmware is in its list")
+              "HOME held at power-on: fm1-dock stays, the sine plays, the boot firmware is in its list")
 
         def flip(f):
             b = bytearray(f.read_bytes())
@@ -80,9 +80,9 @@ def main():
             f.write_bytes(b)
         log, go, peak, _ = run("damaged", ["2500:21", "3500:21^"], edit=flip)
         check("damaged", go[1] == 0 and "boot slot refused 00000001" in log and peak > 500,
-              "a bit flipped in its flash: BAD CRC through the SFC, harbor stays")
+              "a bit flipped in its flash: BAD CRC through the SFC, fm1-dock stays")
 
-        sine = (SRC / "build" / "modules" / "sine.hrbr").read_bytes()
+        sine = (SRC / "build" / "modules" / "sine.dock").read_bytes()
         k2, d2 = hd.din_script(sine, 700)
         log, go, peak, f = run("no_modules", ["0:8", "600:8^", *k2], ms=int(d2) + 1500)
         check("no_modules", "deploy failed 00000004" in log, "a module deploy: NO SPACE while a boot firmware is in")
@@ -91,7 +91,7 @@ def main():
         log, go, peak, f = run("delete", ["0:8", "600:8^", f"900:m{delete.hex()}"], ms=1800)
         log2, go2, peak2 = live(4000, ["2500:21", "3500:21^"], f, wd)
         check("delete", "deploy: deleted" in log and go2[1] == 0 and name not in log2 and peak2 > 500,
-              "DELETE: out of the table; the next power-on is harbor's, the sine plays")
+              "DELETE: out of the table; the next power-on is fm1-dock's, the sine plays")
     finally:
         shutil.rmtree(wd, ignore_errors=True)
     print("all passed" if not failures else f"FAILED: {', '.join(failures)}")

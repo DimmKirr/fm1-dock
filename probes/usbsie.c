@@ -5,7 +5,7 @@
  * reads of FRAME1 (the frame counter: read-only, no endpoint touched), right after the command is
  * written: how many polls bit 15 still reads 1 (stale: the previous command's), then how many
  * until it is 1 again; the bytes read with the plain wait and with a wait for 0 first.
- * Interrupts off throughout (harbor's USB poll uses the mailbox too). argument: none */
+ * Interrupts off throughout (fm1-dock's USB poll uses the mailbox too). argument: none */
 #include "probe.h"
 
 #define UA_CON1 (*(volatile uint32_t *)0x11804u)

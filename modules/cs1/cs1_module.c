@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* CS-1: twochannels' CS-80-style synthesizer (github.com/twochannels/CS-1, 0.3.2, 4e0ebe3) as a
- * harbor module: its own app, cs1/cs1.c, unchanged but for one line (its platform include, now
+ * fm1-dock module: its own app, cs1/cs1.c, unchanged but for one line (its platform include, now
  * cs1_platform.h), with its voice, effects, sounds, pages, user presets and MIDI. The host runs
  * CS-1's app_init() at init and its app_loop() from draw(); the voice renders in the host's
  * audio interrupt; the keys' sensing is the host's (cs1_platform.h). What a module cannot have:
- * cs1_platform.h (the second core, ...). HOME held 1.5 s alone opens harbor's module list (a short
+ * cs1_platform.h (the second core, ...). HOME held 1.5 s alone opens fm1-dock's module list (a short
  * HOME is CS-1's). */
 #include "cs1_platform.h"
 #include "cs1/cs1.c"

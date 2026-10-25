@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* fm1-harbor's module interface, version 1: what a module exports (hb_module_t, the descriptor at
+/* fm1-dock's module interface, version 1: what a module exports (hb_module_t, the descriptor at
  * the start of its image) and what the host gives it (hb_host_t, passed to init). Tables only: a
  * module links against nothing of the host's, and the host checks `abi` before any call.
  *
@@ -78,7 +78,7 @@ typedef struct hb_host {
     /* time */
     uint32_t (*ms)(void);                       /* milliseconds since power-on */
     uint32_t (*ticks)(void);                    /* the 24 MHz counter (busy time, not for waiting) */
-    /* the log: a ring in RAM that survives a reset (tools/harbor.py log) */
+    /* the log: a ring in RAM that survives a reset (tools/dock.py log) */
     void (*log)(const char *s);
     void (*log_u32)(const char *s, uint32_t v); /* s then v in hex */
     /* the screen, 240 x 240, RGB565; text sizes 0 (16 px) and 1 (32 px) */
@@ -149,7 +149,7 @@ typedef struct hb_module {
     void (*midi)(uint32_t st, uint32_t d1, uint32_t d2);   /* 0: note() / cc() only; else every channel message */
 } hb_module_t;
 
-/* A module in flash (and in a .hrbr file): this header, the relocations, then the image.
+/* A module in flash (and in a .dock file; .hrbr before 0.5): this header, the relocations, then the image.
  *   image: .text + .rodata (code_size), .data's initial values (data_size), .ram_text (rt_size)
  * The image starts at the first 256-byte boundary after the relocations, linked to run there (`base`); relocs[] are offsets of 32-bit words in the image that
  * hold module addresses. Whoever moves it adds (new base - base) to them and sets base. The
@@ -212,7 +212,7 @@ typedef struct hb_probe {
 #define HB_PROBE const hb_probe_t hb_module __attribute__((section(".hb_desc"), used))
 
 /* The boot slot (tools/hbboot.py): a whole firmware, built from its source to run at flash
- * HB_BOOT_IMG, that harbor starts at power-on in place of itself (HOME held: harbor). It has
+ * HB_BOOT_IMG, that fm1-dock starts at power-on in place of itself (HOME held: fm1-dock). It has
  * the FM-1 to itself: both cores, all the RAM, its own USB, its own flash areas above 0x97000.
  * Its file is an hb_file_t (flags HB_F_BOOT, no relocations, base = FM1 XIP of HB_BOOT_IMG,
  * desc = 0: the entry is the image's first byte, as the SPL's) and the image, its app.bin. The

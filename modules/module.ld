@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* A harbor module (firmware/harbor/hb_module.h). tools/hbmod.py links it twice, with BASE set to
+/* A fm1-dock module (firmware/dock/hb_module.h). tools/hbmod.py links it twice, with BASE set to
  * two addresses, and takes the words that differ as its relocations.
  *   XIP   the image at BASE: the descriptor first, code and constants, then the load images
  *         of .data and .ram_text

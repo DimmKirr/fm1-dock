@@ -360,7 +360,7 @@ void fm1_cstart(void)
 #ifdef APP_BOOT_HOOK
     if (boot_mode == BOOT_NORMAL)
         APP_BOOT_HOOK(p3);                      /* the app may hand the FM-1 to another firmware here, before
-                                                 * the guard, the screen, USB and audio (harbor's boot slot) */
+                                                 * the guard, the screen, USB and audio (fm1-dock's boot slot) */
 #endif
     fm1_mailbox_clear();
     fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);

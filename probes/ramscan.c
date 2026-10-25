@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* RAMSCAN: is there RAM at a base, how much, is it a mirror, how fast. Each 4 KB page: a word written
  * and read back (the first page that does not keep it ends the RAM); a progress record every 64 KB (a
- * bus fault resets harbor: the last record says where); then each page a signature, read back (a page
+ * bus fault resets fm1-dock: the last record says where); then each page a signature, read back (a page
  * showing an earlier page's signature: a mirror); load and store timing against main RAM. Only RAM is
  * written, never flash. argument: [base, max KB] (default 0x04000000, 1024) */
 #include "probe.h"

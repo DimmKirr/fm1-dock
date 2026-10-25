@@ -34,7 +34,7 @@
  * Rules of the road (the chip has no FPU and no libgcc): integers only, no float, no 64-bit division.
  * tests/host.c runs this file on a computer; web/emu in the browser. What platform.c offers: docs/API.md. */
 #define APP_NAME "CS-1"
-#include "cs1_platform.h"                      /* harbor: CS-1's platform.c, on the host (the only change) */
+#include "cs1_platform.h"                      /* fm1-dock: CS-1's platform.c, on the host (the only change) */
 #include <stddef.h>                              /* offsetof (no libc call: a constant) */
 #include "cs1_dsp.h"
 #include "cs1_voice.h"

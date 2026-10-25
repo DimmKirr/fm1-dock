@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* What a probe (firmware/harbor/hb_module.h, "Probes"; tools/probe.py) is written with.
+/* What a probe (firmware/dock/hb_module.h, "Probes"; tools/probe.py) is written with.
  *
  *   #include "probe.h"
  *   static int32_t run(hb_probe_ctx_t *c)

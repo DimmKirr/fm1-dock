@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* SID: FM-1 SID's synth (github.com/joakimeriksson/fm1-emu, fm1-sid/firmware/main.c, 7856393) as a
- * harbor module, with its own screen and controls. Made by modules/sid/fm1sid/take.py: FM-1 SID's
- * code by line ranges, its changes marked "harbor:". Do not edit fm1sid.c: edit head.c / tail.c
+ * fm1-dock module, with its own screen and controls. Made by modules/sid/fm1sid/take.py: FM-1 SID's
+ * code by line ranges, its changes marked "fm1-dock:". Do not edit fm1sid.c: edit head.c / tail.c
  * or take.py and run it again.
  *   - the player of C64 tunes (PSID, the 6502) is not here: this is the synth mode, always on;
  *   - the chip is reSID 0.16 only (resid/, resid_glue.cc); the own model is gone (sid_stub.c);
@@ -9,7 +9,7 @@
  *     of 256 frames (FM-1 SID: 44 118 Hz, 128): FS_HZ, HALF_FRAMES, HALF_CYC are the host's;
  *   - the panel and the time come from the host (modules/lib/hb_fm1.h), the frame goes out by blit;
  *   - HOME (FM-1 SID: the player) and EDIT (the engine) do nothing; OCT- + OCT+ held 3 s (UBOOT)
- *     is the host's business. HOME held 1.5 s opens harbor's module list.
+ *     is the host's business. HOME held 1.5 s opens fm1-dock's module list.
  * Its controls, as FM-1 SID: keys play, PRESETS / SELECT the patch, OCT- / OCT+ the octave,
  * KNOB1..4 cutoff, resonance, attack, release. The step sequencer: SEQ its page, PLAY run / stop,
  * REC record, SCL / ENV / LFO track 1 / 2 / 3 (PRESETS then the track's patch), ALGORITHM the
@@ -28,14 +28,14 @@ void rs_write(int reg, int val);
 int rs_clock(int *cycles, short *buf, int n);
 void rs_env(unsigned char env[3]);
 
-#define HALF_FRAMES 256u                   /* harbor: the host's block */
-#define FS_HZ 44100u                       /* harbor: the host's rate */
-#define OUT_SHIFT 0                        /* harbor: the host takes Q15 */
+#define HALF_FRAMES 256u                   /* fm1-dock: the host's block */
+#define FS_HZ 44100u                       /* fm1-dock: the host's rate */
+#define OUT_SHIFT 0                        /* fm1-dock: the host takes Q15 */
 #define PSID_PAL_FRAME 19656u              /* (player/psid.h: 312 lines x 63 cycles) */
 
 /* ------------------------------------------------------------------------------- state --- */
 typedef struct { uint32_t cyc; uint8_t reg, val; } ev_t;
-#define NEV 1024u                          /* harbor: 1024 (the player needed 4096) */
+#define NEV 1024u                          /* fm1-dock: 1024 (the player needed 4096) */
 static ev_t evq[NEV];
 static volatile uint32_t ev_head, ev_tail;  /* main loop writes head, the audio ISR tail */
 static uint32_t call_base;
@@ -65,7 +65,7 @@ static cmd_t cmdq[NCMD];
 static volatile uint32_t cmd_head, cmd_tail;   /* main loop writes head, the audio ISR tail */
 static uint32_t syn_next;                   /* the cycle of the driver's next frame */
 static uint32_t syn_held;                   /* the note keys down at the last look */
-#define HALF_CYC 5720u                      /* harbor: SID cycles in a 256-frame block at 44 100 Hz, rounded up */
+#define HALF_CYC 5720u                      /* fm1-dock: SID cycles in a 256-frame block at 44 100 Hz, rounded up */
 
 /* the step sequencer: three tracks of 16 steps, a MIDI note or 0 (rest) each. A track plays its
  * own patch on its own voice; KIT is a drum kit: a note's pitch class picks the drum (C..D#
@@ -646,7 +646,7 @@ static void start_synth(void)
 {
     uint32_t i;
     running = 0;
-    block_wait();                           /* harbor: the block that may be running ends */
+    block_wait();                           /* fm1-dock: the block that may be running ends */
     mode = 1;
     rs_init(model, 985248.0, (double)FS_HZ);
     for (i = 0; i < 32; i++)
@@ -773,7 +773,7 @@ static void synth_keys(uint32_t e)
     }
 }
 
-/* ----------------------------------------------------------------- harbor: the module --- */
+/* ----------------------------------------------------------------- fm1-dock: the module --- */
 static void block_wait(void)                /* the audio block that may be running ends */
 {
     uint32_t b = blocks, t0 = H->ms();
@@ -806,7 +806,7 @@ static void draw_step(uint32_t full)        /* FM-1 SID's main loop, once */
 {
     uint32_t rel, e, now = fm1_ms;
     e = fm1_input_edges(&rel);
-    e &= ~(1u << 8);                        /* harbor: HOME (the player) is not here */
+    e &= ~(1u << 8);                        /* fm1-dock: HOME (the player) is not here */
     if (e & (1u << 2))                      /* FX: the effects page */
         fx_view = !fx_view;
     if (fx_view && fx_keys()) {             /* (its encoders are the page's) PRESETS: the chip */
@@ -841,7 +841,7 @@ static int init(const hb_host_t *h)
     uint32_t i;
     H = h;
     start_synth();
-    for (i = 0; i < 32u; i++)               /* harbor: 0.19 s of the chip unheard (the ISR does not run it yet): */
+    for (i = 0; i < 32u; i++)               /* fm1-dock: 0.19 s of the chip unheard (the ISR does not run it yet): */
         render_resid(pre);                  /* its DC settles behind reSID's output filter, no click at the start */
     play_cyc = 0;
     H->log("sid: FM-1 SID's synth, reSID 0.16");

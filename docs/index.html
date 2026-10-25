@@ -98,7 +98,7 @@
 
 <section id="console">
   <h2>Console</h2>
-  <p class="sub">Talks to fm1-dock on your FM-1 over USB-MIDI, as <code>tools/harbor.py</code> and <code>tools/probe.py</code> do.
+  <p class="sub">Talks to fm1-dock on your FM-1 over USB-MIDI, as <code>tools/dock.py</code> and <code>tools/probe.py</code> do.
     Chrome or Edge on a computer (WebMIDI with SysEx; the browser asks first). Nothing is sent until you press a button.</p>
 
   <div class="panel" id="con">
@@ -128,8 +128,8 @@
 
       <div class="box">
         <div class="box-h"><h3>Deploy a module</h3></div>
-        <p class="dim">A <code>.hrbr</code> (<code>tools/hbmod.py</code>) into its own flash; the table is written last, so a cut cable leaves the old state.</p>
-        <label class="file"><input type="file" id="c-deploy-file" accept=".hrbr" disabled><span>Choose .hrbr…</span></label>
+        <p class="dim">A <code>.dock</code> module (<code>tools/hbmod.py</code>; an older <code>.hrbr</code> too) into its own flash; the table is written last, so a cut cable leaves the old state.</p>
+        <label class="file"><input type="file" id="c-deploy-file" accept=".dock,.hrbr" disabled><span>Choose .dock…</span></label>
         <div class="progress"><div id="c-deploy-bar"></div></div>
         <p id="c-deploy-msg" class="msg"></p>
       </div>
@@ -140,7 +140,7 @@
         <div class="row"><button class="btn small" data-probe="hello" disabled title="probes/hello.c: the probe path itself">HELLO</button>
           <button class="btn small" data-probe="timing" disabled title="probes/timing.c: what instructions cost on this FM-1">TIMING</button>
           <span class="dim small">or your own:</span></div>
-        <label class="file"><input type="file" id="c-probe-file" accept=".hrbr" disabled><span>Choose probe…</span></label>
+        <label class="file"><input type="file" id="c-probe-file" accept=".dock,.hrbr" disabled><span>Choose probe…</span></label>
         <input id="c-probe-arg" type="text" placeholder="argument: 1,2,0x30 or hex:0a0b" disabled>
         <div class="row"><button id="c-probe-run" class="btn small" disabled>Run</button>
           <button id="c-probe-result" class="btn small" disabled title="RESULT: the last probe's output again (after a crash)">Last result</button></div>
@@ -150,9 +150,9 @@
 
       <div class="box">
         <div class="box-h"><h3>Symbols</h3></div>
-        <p class="dim">Load the <code>harbor.syms</code> of the build on your FM-1 (<a href="fm1-dock-0.4.syms">0.4's</a>, or <code>build/harbor.syms</code> for your own build): every PC
+        <p class="dim">Load the <code>fm1-dock.syms</code> of the build on your FM-1 (<a href="fm1-dock-0.5.syms">0.5's</a>, or <code>build/fm1-dock.syms</code> for your own build): every PC
           on this page then shows its function.</p>
-        <label class="file"><input type="file" id="c-syms" accept=".syms,.txt"><span>Choose harbor.syms…</span></label>
+        <label class="file"><input type="file" id="c-syms" accept=".syms,.txt"><span>Choose fm1-dock.syms…</span></label>
         <p id="c-syms-msg" class="msg"></p>
       </div>
 
@@ -171,16 +171,16 @@
   <div>
     <h2>The same firmware in the emulator</h2>
     <p><a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a> runs FM-1 firmware unchanged: the same package, and with
-      <code>--flash</code> the same flash contents, deployed modules and banks included. Below it runs fm1-dock 0.4 in your
+      <code>--flash</code> the same flash contents, deployed modules and banks included. Below it runs fm1-dock 0.5 in your
       browser: press Start, then hold HOME (the 7 key) to pick CS-1, Scintilla or OberVave.</p>
     <pre class="code"><span class="c"># a window: the panel, your computer's keys and MIDI</span>
-fm1-live --fwsc harbor.fwsc --flash flash.bin
+fm1-live --fwsc fm1-dock.fwsc --flash flash.bin
 
 <span class="c"># headless: a deploy into the DIN jack, the sound, the screen, the log</span>
-tools/harbor.py emu --fwsc build/harbor.fwsc --deploy fm1sid.hrbr --ms 6000
+tools/dock.py emu --fwsc build/fm1-dock.fwsc --deploy fm1sid.dock --ms 6000
 
 <span class="c"># closer to the chip's speed and rules</span>
-FM1_STRICT=1 fm1-live --fwsc harbor.fwsc --mhz 960</pre>
+FM1_STRICT=1 fm1-live --fwsc fm1-dock.fwsc --mhz 960</pre>
   </div>
   <div class="emu-frame">
     <iframe src="https://joakimeriksson.github.io/fm1-emu/?embed=1&amp;fw=fm1dock" title="fm1-emu: the FM-1 in the browser" loading="lazy" allow="midi; autoplay"></iframe>
@@ -240,12 +240,12 @@ tools/probe.py exec "r3 = r1 * r2" --regs r1=5,r2=7  <span class="c"># one instr
 HB_DESC = { HB_ABI, <span class="s">"MYSYNTH"</span>, init, release, note, cc,
             render, ui, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi };</pre>
       <pre class="code"><span class="c"># modules/mysynth/module.cfg: name, version, sources, cflags, includes, libs</span>
-python3 tools/hbmod.py modules/mysynth      <span class="c"># -> build/modules/MYSYNTH.hrbr</span>
-uv run --with python-rtmidi tools/harbor.py deploy build/modules/MYSYNTH.hrbr
-<span class="c"># or drop the .hrbr on "Deploy a module" above</span></pre>
+python3 tools/hbmod.py modules/mysynth      <span class="c"># -> build/modules/mysynth.dock</span>
+uv run --with python-rtmidi tools/dock.py deploy build/modules/mysynth.dock
+<span class="c"># or drop the .dock on "Deploy a module" above</span></pre>
       <p>Start from <code>modules/sine/sine.c</code> (about 150 lines). The host gives a module the time, the log, the screen
         (text, a canvas, blits), the LEDs (lit or a dim glow), its own settings record and flash banks, MIDI out, the MASTER gain and
-        the keys' force: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/harbor/hb_module.h">hb_module.h</a> has every call.</p>
+        the keys' force: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/dock/hb_module.h">hb_module.h</a> has every call.</p>
     </div>
     <div>
       <h3>Limits</h3>
@@ -300,13 +300,13 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
         7 data missing · 8 not started · 9 not found · 10 bad message</p>
       <h3>Module states</h3>
       <p class="mono small">0 ok · 1 bad CRC · 2 bad header · 3 too big · 4 crashed · 5 init failed · 6 too slow</p>
-      <h3>A module file (.hrbr)</h3>
+      <h3>A module file (.dock)</h3>
       <p>An 80-byte header (magic "HRBR", ABI, flags, name, version, code / data / bss / ram_text sizes, measured worst cycles,
         descriptor offset, base, relocation count, CRC-32), the relocations, then the image on a 256-byte boundary. Whoever
         moves it adds the difference to each relocated word, which is how one file lands anywhere in the deploy area.</p>
       <p>Implementations: <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/tools/hbdeploy.py">tools/hbdeploy.py</a>
         (Python), <a href="dock.js">dock.js</a> (this page), and the device side in
-        <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/src/harbor.c">firmware/src/harbor.c</a>.</p>
+        <a href="https://github.com/joakimeriksson/fm1-dock/blob/main/firmware/src/dock.c">firmware/src/dock.c</a>.</p>
     </div>
   </div>
 </section>

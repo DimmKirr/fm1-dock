@@ -25,7 +25,7 @@ To our knowledge reSID is by far the most accurate SID emulator ever created.
 This comes at a price; what is considered a fairly fast CPU at the time of
 this writing is needed to run the emulator.
 
-fm1-harbor: the reSID 0.16 sources the FM-1 SID module builds (sid, voice, wave, envelope,
+fm1-dock: the reSID 0.16 sources the FM-1 SID module builds (sid, voice, wave, envelope,
 filter, extfilt, pot and the eight wave tables), from resid-0.16.tar.gz (zimmers.net, sha256
 830fe4c048053338c8f4c38decdedd93d8c101583958d62536d669f3ac7a66f3). One change: the wave
 tables (wave.h, wave*_*.cc) are `const unsigned char` instead of `reg8` (unsigned int), so

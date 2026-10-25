@@ -5,7 +5,7 @@
  * every load is a new line). Interrupts off while timing. argument: none */
 #include "probe.h"
 
-#define CA_BASE 0x02010000u                   /* XIP: harbor's code and after it (flash is 1 MB) */
+#define CA_BASE 0x02010000u                   /* XIP: fm1-dock's code and after it (flash is 1 MB) */
 
 static uint32_t ca_time(uint32_t foot, uint32_t stride, uint32_t loads)
 {

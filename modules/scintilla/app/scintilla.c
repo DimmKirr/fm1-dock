@@ -21,13 +21,13 @@
  * The preset, the octave and the page are kept in flash; edits to a sound are not (yet).
  * Rules of the road: integers only, no float, no 64-bit division (docs/RULES.md). */
 #define APP_NAME "SCINTILLA"
-#include "sc_platform.h"                /* (harbor: Dinghy's platform calls) */
+#include "sc_platform.h"                /* (fm1-dock: Dinghy's platform calls) */
 #include "sc_synth.h"
 #include "sc_presets.h"
 
 /* ---- MIDI from the DIN jack: UART1 DMAs into a ring filled with 0xFF (a byte MIDI never sends here:
- * it is a reset), read by content (hal/fm1_uart.h; as fm1-harbor). Channel messages only. */
-#if 0                                   /* (harbor: the DIN jack is the host's) */
+ * it is a reset), read by content (hal/fm1_uart.h; as fm1-dock). Channel messages only. */
+#if 0                                   /* (fm1-dock: the DIN jack is the host's) */
 #include "fm1_uart.h"
 #define DIN_RING 256u
 static volatile uint8_t din_ring[DIN_RING] __attribute__((aligned(16)));
@@ -73,7 +73,7 @@ static int din_get(uint8_t *st, uint8_t *d1, uint8_t *d2) { (void)st; (void)d1; 
 #endif
 
 /* ---- the sound (the audio ISR) */
-#if 1                                   /* (harbor: the module RAM, all .bss) (a Mach-O section needs "segment,section", as gfx.c's) */
+#if 1                                   /* (fm1-dock: the module RAM, all .bss) (a Mach-O section needs "segment,section", as gfx.c's) */
 static sc_synth_t syn;
 #else
 static sc_synth_t syn __attribute__((section(".pool")));   /* 80 KB with the reverb's lines: not in .bss's 96 */
@@ -449,7 +449,7 @@ static void app_init(void)
     if (set.page >= N_PAGES) set.page = 0;
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
     sc_perf_default(&perf);
-    staged = SC_PRESETS[set.preset % SC_N_PRESETS];   /* (harbor: muted while it starts) */
+    staged = SC_PRESETS[set.preset % SC_N_PRESETS];   /* (fm1-dock: muted while it starts) */
     sc_init(&syn, &staged);
     syn.perf = perf;
     sc_post(&syn, SC_EV_PATCH, 0, 0);

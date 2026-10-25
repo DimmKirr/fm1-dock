@@ -1,4 +1,4 @@
-# fm1-harbor: plan
+# fm1-dock: plan
 
 One firmware for the M-VAVE FM-1 that is installed once. Synths are modules sent over
 USB-MIDI into flash slots; one runs at a time, as many are stored as fit. A broken module can
@@ -85,7 +85,7 @@ record survives switching away and back.
 ### Flash
 
     0x00000-0x04000  boot chain (uboot.boot, isd_config.ini)   never written
-    0x04000-...      host (Dinghy + harbor)                    written by updates only
+    0x04000-...      host (Dinghy + fm1-dock)                    written by updates only
     ...-0xE0000      slot table + module slot area             written by deploys only
     0xE0000-0xE5000  update staging (Dinghy's ota.c)           as Dinghy
     0xFC000          settings                                  as Dinghy
@@ -102,17 +102,17 @@ nothing on hardware):
       match); the package builds reproducibly from a clean `build/`; boots in fm1-emu (`--bin` and the
       `.fwsc`). The host is 59.8 KB of the 191.7 KB it may take (the slot table is at XIP 0x02030000).
 - [~] **P1**: the log ring, the crash record, the strikes and the render stats are in NOINIT;
-      `tools/harbor.py log` reads them from a RAM dump (fm1-live `FM1_DUMPRAM`), `harbor.py logs` /
+      `tools/dock.py log` reads them from a RAM dump (fm1-live `FM1_DUMPRAM`), `dock.py logs` /
       `modules` over USB-MIDI SysEx (LOG, HELLO). Not yet: the crash test (fm1-emu has no fault /
       reset model: it halts on a wild jump).
-- [x] **P2**: interface v1 (`firmware/harbor/hb_module.h`), the double-link relocation (`tools/hbmod.py`;
+- [x] **P2**: interface v1 (`firmware/dock/hb_module.h`), the double-link relocation (`tools/hbmod.py`;
       also C++ and libm / libc, static constructors refused), modules packed at build time into
       the app slot (scrambled with the host: no plain window needed yet). The sine from its slot is
       bit-identical to the built-in one, at two slot addresses.
 - [~] **P3**: slot table, header / ABI / CRC / size checks, the picker (HOME), switching, the built-in
       sine as the fallback, per-module settings, OCT+ safe boot, two strikes skip a module. Tested:
       a bad CRC is refused. Not testable in fm1-emu yet: a crash or watchdog reset and the reboot after it.
-- [~] **P4 deploy** (`firmware/src/harbor.c` "deploys", `tools/hbdeploy.py`, `harbor.py deploy`):
+- [~] **P4 deploy** (`firmware/src/dock.c` "deploys", `tools/hbdeploy.py`, `dock.py deploy`):
   - SysEx `F0 7D 48 42 cmd seq pack7(payload, CRC-32) F7`: HELLO, LIST, BEGIN / DATA (256 B) / COMMIT,
     ABORT, DELETE, SELECT, SAFE (the sine), LOG. Over USB each frame is answered; over the DIN jack
     (and a `.syx`) nothing comes back, the sender paces itself.
@@ -136,7 +136,7 @@ nothing on hardware):
   - a crash or watchdog in a slot module does not count towards the boot guard (so it never lands in
     the USB rescue by itself), a crash of the built-in sine does (it is the host's own);
   - a module slower than real time for 64 blocks is stopped: the main loop, USB and the updater keep
-    running; HELLO / SAFE / SELECT / DELETE reach a running harbor from the computer;
+    running; HELLO / SAFE / SELECT / DELETE reach a running fm1-dock from the computer;
   - banks are 8 KiB by module name (`HB_BANK_MAX` 8176; CS-1's 4 KiB bank did not fit the old 4 KiB
     sector with its header, so its user presets were never saved).
 - **The keys' force** (velocity and polyphonic pressure): Velo's sensing (Charles Vestal,
@@ -149,7 +149,7 @@ nothing on hardware):
   on `fm1-live-flash-file`): `ms:ID@VEL`, `ms:ID~VEL`, the mouse's height on a key. Fitted to CS-1's
   measurements: CS-1's own firmware in the emulator senses 8 / 19 / 50 / 80 / 101 for 1 / 20 / 64 /
   100 / 127. Not on hardware.
-- Identity: CS-1's own package is also `FM-1_950`: harbor needs another before any release.
+- Identity: CS-1's own package is also `FM-1_950`: fm1-dock needs another before any release.
 - **Probes** (`tools/probe.py`, `probes/`, `tests/probe_test.py`): a program sent as a deploy is
   (BEGIN / DATA) but run once from RAM (RUN) instead of written (COMMIT refuses it, and the boot
   refuses one in a slot). Its code runs where it was received (HB_MOD_RAM up), its .data / .bss at
@@ -163,14 +163,14 @@ nothing on hardware):
 - **Boot slot** (`tools/hbboot.py`, `tests/boot_test.py`): a whole firmware, rebuilt from its source to
   run at flash 0x15000 (`hbboot.py relink`: its app.ld, its PC guard, its build's start address),
   deployed as a module is (streamed: each 4 KiB sector encrypted with the chip key and written as
-  it arrives; the table entry last). At power-on harbor hands the FM-1 over in fm1_cstart, after its
+  it arrives; the table entry last). At power-on fm1-dock hands the FM-1 over in fm1_cstart, after its
   50 ms key scan and before its guard, screen, USB and audio (platform.c `APP_BOOT_HOOK`): the
-  firmware has both cores, all RAM, its own USB and flash areas. HOME (or OCT-/OCT+) held: harbor
+  firmware has both cores, all RAM, its own USB and flash areas. HOME (or OCT-/OCT+) held: fm1-dock
   stays; a firmware that fails its CRC (read back through the SFC) or was started twice without a
-  power-on between (a counter at 0x01C7FD40, app.ld `.hbgo`): harbor stays. Picking it in harbor's
+  power-on between (a counter at 0x01C7FD40, app.ld `.hbgo`): fm1-dock stays. Picking it in fm1-dock's
   list reboots into it. Modules and a boot firmware exclude each other (its data is where they go).
   - Felucca 1.6.1 (511 KB): relinked, deployed over DIN in fm1-emu (218 s), its own UI and sound at
-    power-on; HOME gives harbor's list; a flipped bit, a module deploy and DELETE behave (6 cases).
+    power-on; HOME gives fm1-dock's list; a flipped bit, a module deploy and DELETE behave (6 cases).
   - For it: the host's settings moved off 0xFC000 (Felucca's) to 0x95000; the fonts packed to 1 bit
     per pixel (`tools/font_1bpp.py`: they are bitmap fonts) to bring the host from 75 to 51 KB, so the
     slot can start at 0x14000; Felucca leaves 4.6 KiB of it free.
@@ -180,11 +180,11 @@ nothing on hardware):
     HB_F_BOOT_NODATA) leaves the deployed modules in: they deploy beside it, and it beside them.
     FM-1 SID (fm1-emu's fm1-sid, relinked for the slot, its tunes in its pack: 485 KiB with 15) with
     CS-1 and SCINTILLA deployed (`tests/trio_test.py`, both orders): power-on starts the last pick
-    (FM-1 SID, or harbor with a module), HOME held keeps harbor, picking FM-1 SID in the list
+    (FM-1 SID, or fm1-dock with a module), HOME held keeps fm1-dock, picking FM-1 SID in the list
     stores it and reboots into it.
   - Not yet: SLOOP and the others (each one's flash map and NOINIT checked: Felucca's NOINIT ends at
     0x01C7FCD0), a resend of the deploy over USB (nothing tested over USB), a firmware's own updater
-    (it would write over harbor: an install, as from the Hub).
+    (it would write over fm1-dock: an install, as from the Hub).
 - [ ] P5 hardware: not started.
 - **Interface v2** (ABI 2): a module may take the whole screen (HB_F_SCREEN) and the whole panel
   (HB_F_PANEL: every key and button as events, OCT and HOME too; HOME held 1.5 s alone opens the
@@ -231,7 +231,7 @@ amd64 on macOS); build Dinghy; run it in host mode and in fm1-emu; measure the h
 
 **P1: Debug channel.** `hlog()` into a NOINIT ring; a crash record (PC, registers, cause) from
 the exception handler; stats (render cycles per block, worst, missed blocks); SysEx requests for
-log / stats / crash; `harbor log` CLI. fm1-emu: `--log-ring` prints the ring live.
+log / stats / crash; `fm1-dock log` CLI. fm1-emu: `--log-ring` prints the ring live.
 *Pass:* in fm1-emu, logs show, and a deliberate crash's record is there after the reboot.
 
 **P2: Interface v1 and relocation, no loader yet.** Descriptor and service table; Dinghy's sine
@@ -248,7 +248,7 @@ skipped on the next boot, switching between two modules works.
 **P4: Deploy.** SysEx framing (7-bit packing, sequence numbers, CRC per chunk, ack/nak,
 resume); erase and program inside the slot area only; verify through XIP; invalidate the cache;
 table entry last; first-fit placement and compaction (moving modules down, relocated). The same
-protocol on USB-MIDI and the DIN jack (fm1-emu has DIN, not USB). `harbor deploy mod.hrbr`
+protocol on USB-MIDI and the DIN jack (fm1-emu has DIN, not USB). `fm1-dock deploy mod.dock`
 (Python) and a WebMIDI page.
 *Pass:* end-to-end deploy in fm1-emu over DIN; a power-cut test, stopped at 200 random points,
 always boots the host.
@@ -279,7 +279,7 @@ writes the emulated slot area.
    that ran code earlier in the same run would run the old code).
 3. `--log-ring`; cycle counts per function (module budgets).
 4. Later: a USB-MIDI device model (Dinghy's `usb.c` as the reference), which would also let it
-   test updaters (and harbor's deploys over USB, with their replies).
+   test updaters (and fm1-dock's deploys over USB, with their replies).
 5. Done on a branch (`fm1-live-flash-file`, a worktree, not pushed): `fm1-live --flash FILE` (the
    flash from FILE, back to it at the end) and `FM1_FLASH_CUT=N` (a power cut half way through the
    Nth erase / program), for `tests/deploy_test.py`. Until it is merged the tests need that build.
