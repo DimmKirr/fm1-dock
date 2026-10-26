@@ -60,11 +60,12 @@
   <h3 class="install-then">Then add FM-1 SID</h3>
   <p class="dim">FM-1 SID, the C64 synth in the video, is not in the package: it is a module, added to fm1-dock from here.</p>
   <div data-fm1-add="fm1-sid"></div>
-  <p class="dim">The tunes from the video: <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/?t=MUSICIANS/G/Galway_Martin/Arkanoid.sid">Arkanoid</a>,
-    <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/?t=MUSICIANS/G/Galway_Martin/Wizball.sid&amp;s=7">Wizball</a> and
-    <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/?t=MUSICIANS/H/Hubbard_Rob/Commando.sid">Commando</a> open on FM-1 SID's page; there, <b>Play on my FM-1</b> sends the
-    tune to FM-1 SID on your FM-1 over USB and it plays. (They come from the High Voltage SID Collection when you play
-    them: none are shipped here.)</p>
+  <h3 class="install-then">The tunes from the video, on your FM-1</h3>
+  <p class="dim">Straight to FM-1 SID in your fm1-dock, over USB: each comes from the High Voltage SID Collection when you
+    press it (none are shipped here), goes into FM-1 SID's C64 memory and plays. Nothing is written to flash.</p>
+  <div data-fm1-tunes></div>
+  <p class="dim">More: any of HVSC's 61 000 tunes on <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">FM-1 SID's
+    page</a>, with <b>Play on my FM-1</b>.</p>
   <p class="dim">Or the <code>.fwsc</code> from the <a href="https://github.com/joakimeriksson/fm1-dock/releases/latest">latest
     release</a> with <code>tools/fm1_install.py</code>. FM-1 SID and Scintilla install from their own pages, or all
     three from <a href="install/">one page</a>.</p>
@@ -357,9 +358,15 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
 
 <script type="module" src="console.js"></script>
 <script type="module">
-  import { installButton, addButton } from "./install/fm1install.js";
+  import { installButton, addButton, tuneButtons } from "./install/fm1install.js";
   for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install, { buttonClass: "btn primary" });
   for (const el of document.querySelectorAll("[data-fm1-add]")) addButton(el, el.dataset.fm1Add, { buttonClass: "btn primary" });
+  const VIDEO = [   // the tunes in the video, as FM-1 SID played them there
+    { title: "Arkanoid", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Arkanoid.sid" },
+    { title: "Wizball", by: "Martin Galway", path: "MUSICIANS/G/Galway_Martin/Wizball.sid", song: 7 },
+    { title: "Commando", by: "Rob Hubbard", path: "MUSICIANS/H/Hubbard_Rob/Commando.sid" },
+  ];
+  for (const el of document.querySelectorAll("[data-fm1-tunes]")) tuneButtons(el, VIDEO, { buttonClass: "btn" });
 </script>
 </body>
 </html>

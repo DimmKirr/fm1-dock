@@ -9,12 +9,13 @@
 //
 //   <div data-fm1-install="fm1-sid"></div>             a whole firmware
 //   <div data-fm1-add="fm1-sid"></div>                 a module into the fm1-dock on the FM-1 (addButton)
+//   <div data-fm1-tunes></div>                         C64 tunes to FM-1 SID on the FM-1 (tuneButtons)
 //   <script type="module">
 //     import { installButton } from "/fm1-dock/install/fm1install.js";
 //     for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install);
 //   </script>
 import { Updater } from "./fm1ota.js";
-import { Dock, moduleInfo } from "../dock.js";
+import { Dock, CMD, moduleInfo } from "../dock.js";
 
 const SITE = new URL("../", import.meta.url);           // fm1-dock's site: fw/ is there
 const BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
@@ -199,6 +200,61 @@ export async function addModule(midi, mod, ask, progress) {
   } finally { dock.close(); }
 }
 
+// ------------------------------------------------------------------ a tune to FM-1 SID ---
+
+const HVSC = "https://www.hvsc.c64.org/download/C64Music/";   // fetched when played, none kept here
+const SID = "FM-1 SID";
+const REFUSED = ["", "a bad frame", "the GoatTracker editor is open on the FM-1: leave it (SEQ) and press again",
+  "not a tune FM-1 SID plays", "a frame out of order"];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const u32le = (v) => [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff];
+
+// the MODULE payloads that send a .sid (fm1-sid's web/fm1link.js tuneSteps, tools/dock.py send): B [size][song],
+// D [at][bytes] in order, E; song 0 is the tune's own start song
+export function tuneSteps(bytes, song = 0) {
+  const steps = [Uint8Array.from([0x42, ...u32le(bytes.length), ...u32le(song)])];
+  for (let at = 0; at < bytes.length; at += 256) steps.push(Uint8Array.from([0x44, ...u32le(at), ...bytes.subarray(at, at + 256)]));
+  steps.push(Uint8Array.of(0x45));
+  return steps;
+}
+
+export async function fetchTune(path) {
+  const r = await fetch(HVSC + path);
+  if (!r.ok) throw fail("hvsc", `${path}: HTTP ${r.status}`);
+  const b = new Uint8Array(await r.arrayBuffer());
+  const kind = String.fromCharCode(...b.subarray(0, 4));
+  if (kind !== "PSID" && kind !== "RSID") throw fail("hvsc", `${path} is not a .sid`);
+  return b;
+}
+
+// a tune to FM-1 SID in the fm1-dock on the FM-1: switched to FM-1 SID first when another synth plays, then the tune
+// into its C64's memory, played at once; nothing goes to flash. -> "switched" or "playing"
+export async function playTune(midi, bytes, song, progress = () => {}) {
+  const found = await findDock(midi);
+  if (!found) throw fail("nodock", "");
+  const { dock, hello } = found;
+  try {
+    const sid = (await dock.modules()).find((m) => m.name === SID);
+    if (!sid) throw fail("nosid", "");
+    let switched = false;
+    if (hello.cur !== sid.index) {
+      const st = await dock.command(CMD.SELECT, SID);
+      if (st !== "done") throw fail("select", st);
+      switched = true;
+      await sleep(2500);                        // FM-1 SID starts (its banks, the house tune)
+    }
+    const steps = tuneSteps(bytes, song);
+    for (let i = 0; i < steps.length; i++) {
+      const d = await dock.ask(CMD.MODULE, steps[i], { timeout: 1500, tries: 3 });
+      if (d[0] === 11) throw fail("refused", REFUSED[d[1]] || `FM-1 SID's error ${d[1]}`);
+      if (d[0] === 9) throw fail("nosid", "");
+      if (d[0]) throw fail("refused", `status ${d[0]}`);
+      progress((i + 1) / steps.length);
+    }
+    return switched ? "switched" : "playing";
+  } finally { dock.close(); }
+}
+
 const SAY = {
   nomidi: "This browser cannot reach the FM-1: open the page in Chrome or Edge.",
   denied: "MIDI (SysEx) was not allowed. Allow MIDI in the site settings (the address bar) and press Install again.",
@@ -214,6 +270,10 @@ const SAY = {
   badreq: "The FM-1 asked for something outside the package; nothing more was sent. ",
   nodock: "No FM-1 running fm1-dock found. Install fm1-dock first (above), plug the FM-1 in with a USB data cable, close other apps that use MIDI, and press again.",
   abi: "This fm1-dock is too old or too new for the module: install the latest fm1-dock first. ",
+  nosid: "FM-1 SID is not in the fm1-dock on the FM-1: add it first (Add FM-1 SID, above).",
+  select: "fm1-dock did not switch to FM-1 SID: ",
+  refused: "FM-1 SID did not take it: ",
+  hvsc: "Could not fetch the tune from the High Voltage SID Collection: ",
   start: "Starting the update", verify: "The FM-1 checks the package", loader: "Switching to update mode",
   write: "Writing: do not unplug the FM-1", reboot: "Restarting",
 };
@@ -320,4 +380,43 @@ export function addButton(el, id, opts = {}) {
     }
     busy = false; btn.disabled = false;
   });
+}
+
+// one button per tune ({ title, by, path, song }) in el; each fetches the tune from HVSC and plays it on FM-1 SID
+export function tuneButtons(el, tunes, opts = {}) {
+  el.classList.add("fm1-install", "fm1-tunes");
+  el.innerHTML = "";
+  const row = document.createElement("div");
+  row.className = "fm1-tunes-row";
+  const status = document.createElement("p");
+  status.className = "fm1-install-status";
+  status.setAttribute("role", "status");
+  const say = (text) => { status.textContent = text; };
+  const buttons = tunes.map((t) => {
+    const b = Object.assign(document.createElement("button"), { type: "button", className: opts.buttonClass || "" });
+    b.innerHTML = `<span class="fm1-tune-play">▶</span> ${t.title} <small>${t.by}</small>`;
+    b.title = `${t.title} by ${t.by}: from the High Voltage SID Collection to FM-1 SID on your FM-1, over USB`;
+    return b;
+  });
+  row.append(...buttons);
+  el.append(row, status);
+  if (!navigator.requestMIDIAccess) { say(SAY.nomidi); buttons.forEach((b) => { b.disabled = true; }); return; }
+  let busy = false;
+  tunes.forEach((t, i) => buttons[i].addEventListener("click", async () => {
+    if (busy) return;
+    busy = true; buttons.forEach((b) => { b.disabled = true; });
+    try {
+      say(`Fetching ${t.title} …`);
+      const bytes = await fetchTune(t.path);
+      let midi;
+      try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (_) { throw fail("denied", ""); }
+      say(`Sending ${t.title} to the FM-1 …`);
+      const how = await playTune(midi, bytes, t.song || 0, (x) => say(`Sending ${t.title}: ${Math.round(x * 100)} %`));
+      say(`${how === "switched" ? "Switched the FM-1 to FM-1 SID: " : ""}${t.title} by ${t.by} is playing on your FM-1.`);
+    } catch (e) {
+      say(SAY[e.code] ? SAY[e.code] + (["select", "refused", "hvsc"].includes(e.code) ? e.message : "") : `Error: ${e.message}`);
+      console.error(e);
+    }
+    busy = false; buttons.forEach((b) => { b.disabled = false; });
+  }));
 }

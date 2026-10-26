@@ -4,7 +4,7 @@
 // by Leo Kuroshita, Hügelton Instruments, GPL-3.0).
 //   node tests/install_test.mjs [DIR]
 import { readFileSync, existsSync } from "node:fs";
-import { checkPackage, packageDamage, logicalImage, productOf, installOn, addModule } from "../docs/install/fm1install.js";
+import { checkPackage, packageDamage, logicalImage, productOf, installOn, addModule, playTune, tuneSteps } from "../docs/install/fm1install.js";
 import { pack7, unpack7 } from "../docs/install/fm1ota.js";
 import { frame, parse, moduleInfo, crc32, CMD } from "../docs/dock.js";
 
@@ -141,8 +141,9 @@ ok(productOf(new Uint8Array(0x400).fill(0x7D)) === "", "productOf: no marker byt
 // ------------------------------------------------------------------ a module into fm1-dock ---
 // an FM-1 running fm1-dock (firmware/src/dock.c's deploys, as docs/dock.js speaks them), on WebMIDI
 class FakeDock {
-  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca" } = {}) {
+  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0 } = {}) {
     this.abi = abi; this.mods = modules; this.got = null; this.committed = null; this.frames = 0;
+    this.cur = cur; this.refuse = refuse; this.tune = null; this.played = null;
     const listeners = new Set();
     this.input = { name, state: "connected", addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f) };
     this.output = { name, state: "connected", send: (f) => { this.frames++; setTimeout(() => this.rx(f), 0); } };
@@ -153,7 +154,7 @@ class FakeDock {
   rx(f) {
     const r = parse(Uint8Array.from(f)), d = r.d;
     const u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
-    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, 0, 0, 0, 0, ...u32(400000), ...u32(500000), ...u32(300000), ...new Array(24).fill(0)]);
+    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(400000), ...u32(500000), ...u32(300000), ...new Array(24).fill(0)]);
     else if (r.cmd === CMD.LIST) {
       this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
       this.reply(r.cmd, r.seq, [0, 0xff]);
@@ -164,6 +165,19 @@ class FakeDock {
     } else if (r.cmd === CMD.DATA) {
       const off = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24);
       this.got.set(d.subarray(4), off);
+      this.reply(r.cmd, r.seq, [0]);
+    } else if (r.cmd === CMD.SELECT) {
+      const name = new TextDecoder().decode(d.subarray(0, 24)).split("\0")[0];
+      const i = this.mods.indexOf(name);
+      if (i >= 0) this.cur = i;
+      this.reply(r.cmd, r.seq, [i >= 0 ? 0 : 9]);
+    } else if (r.cmd === CMD.MODULE) {
+      const rd = (o) => (d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] << 24)) >>> 0;
+      if (this.mods[this.cur] !== "FM-1 SID") { this.reply(r.cmd, r.seq, [9]); return; }
+      if (this.refuse) { this.reply(r.cmd, r.seq, [11, this.refuse]); return; }
+      if (d[0] === 0x42) this.tune = { bytes: new Uint8Array(rd(1)), song: rd(5) };
+      else if (d[0] === 0x44) this.tune.bytes.set(d.subarray(5), rd(1));
+      else if (d[0] === 0x45) this.played = this.tune;
       this.reply(r.cmd, r.seq, [0]);
     } else if (r.cmd === CMD.COMMIT) {
       const good = crc32(this.got) === this.crc;
@@ -192,6 +206,27 @@ if (dir && existsSync(`${dir}/index.json`)) {
     ok(await addModule(dev3.access, mod, no, () => {}) === null && !dev3.got, `${id}: Cancel: nothing sent after the question`);
     const e = await reject(addModule(new FakeDock({ abi: 1 }).access, mod, yes, () => {}));
     ok(e && e.code === "abi", `${id}: an fm1-dock of another ABI: refused`);
+  }
+}
+// ------------------------------------------------------------------ a tune to FM-1 SID ---
+{
+  const tune = Uint8Array.from({ length: 4700 }, (_, i) => (i * 13) & 0xFF);
+  tune.set([0x50, 0x53, 0x49, 0x44]);                    // "PSID"
+  const dev = new FakeDock({ modules: ["SINE", "CS-1", "FM-1 SID"], cur: 2 });
+  const how = await playTune(dev.access, tune, 7);
+  ok(how === "playing" && dev.played && eq(Array.from(dev.played.bytes), Array.from(tune)) && dev.played.song === 7,
+    `a tune to FM-1 SID playing: every byte, song 7 (${dev.frames} frames)`);
+  const dev2 = new FakeDock({ modules: ["SINE", "CS-1", "FM-1 SID"], cur: 1 });
+  const how2 = await playTune(dev2.access, tune, 0);
+  ok(how2 === "switched" && dev2.cur === 2 && dev2.played, "CS-1 playing: switched to FM-1 SID, then the tune");
+  const e = await reject(playTune(new FakeDock().access, tune, 0));
+  ok(e && e.code === "nosid", "no FM-1 SID in the fm1-dock: nosid (add it first)");
+  const e2 = await reject(playTune(new FakeDock({ modules: ["FM-1 SID"], refuse: 2 }).access, tune, 0));
+  ok(e2 && e2.code === "refused" && /GoatTracker editor/.test(e2.message), `the GoatTracker editor open: "${e2 && e2.message}"`);
+  const sidweb = process.env.FM1_SID_WEB;                 // fm1-sid's web/: the same payloads as its page sends
+  if (sidweb && existsSync(`${sidweb}/fm1link.js`)) {
+    const theirs = (await import(`${sidweb}/fm1link.js`)).tuneSteps(tune, 7), ours = tuneSteps(tune, 7);
+    ok(theirs.length === ours.length && theirs.every((x, i) => eq(Array.from(x), Array.from(ours[i]))), "tuneSteps: the same bytes as FM-1 SID's page sends");
   }
 }
 {
