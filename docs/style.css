@@ -160,6 +160,10 @@ input[type=text] { width: 100%; margin: 8px 0; font-family: var(--mono); }
 .fm1-install progress:not([hidden]) { display: block; width: min(420px, 100%); height: 8px; margin: 12px 0 0; accent-color: #a98add; }
 .fm1-install .fm1-install-status { margin: 10px 0 0; min-height: 1.4em; color: var(--fg); }
 .install-then { margin: 30px 0 4px; font-size: 1.1rem; }
+.add-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px 28px; }
+.add-grid h4 { margin: 10px 0 2px; font-size: 1rem; }
+.add-grid h4 .dim { font-weight: 400; font-size: 0.85rem; }
+.add-grid p { margin: 0; }
 .fm1-tunes-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .fm1-tunes-row .btn small { color: var(--dim); font-weight: 400; }
 .fm1-tunes-row .fm1-tune-play { color: var(--acc); }

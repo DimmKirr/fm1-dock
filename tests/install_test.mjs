@@ -141,7 +141,8 @@ ok(productOf(new Uint8Array(0x400).fill(0x7D)) === "", "productOf: no marker byt
 // ------------------------------------------------------------------ a module into fm1-dock ---
 // an FM-1 running fm1-dock (firmware/src/dock.c's deploys, as docs/dock.js speaks them), on WebMIDI
 class FakeDock {
-  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0 } = {}) {
+  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca", cur = 0, refuse = 0, largest = 400000 } = {}) {
+    this.largest = largest;
     this.abi = abi; this.mods = modules; this.got = null; this.committed = null; this.frames = 0;
     this.cur = cur; this.refuse = refuse; this.tune = null; this.played = null;
     const listeners = new Set();
@@ -154,7 +155,7 @@ class FakeDock {
   rx(f) {
     const r = parse(Uint8Array.from(f)), d = r.d;
     const u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
-    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(400000), ...u32(500000), ...u32(300000), ...new Array(24).fill(0)]);
+    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, this.cur, 0, 0, 0, ...u32(this.largest), ...u32(500000), ...u32(300000), ...new Array(24).fill(0)]);
     else if (r.cmd === CMD.LIST) {
       this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
       this.reply(r.cmd, r.seq, [0, 0xff]);
@@ -206,6 +207,9 @@ if (dir && existsSync(`${dir}/index.json`)) {
     ok(await addModule(dev3.access, mod, no, () => {}) === null && !dev3.got, `${id}: Cancel: nothing sent after the question`);
     const e = await reject(addModule(new FakeDock({ abi: 1 }).access, mod, yes, () => {}));
     ok(e && e.code === "abi", `${id}: an fm1-dock of another ABI: refused`);
+    const dev4 = new FakeDock({ largest: blob.length - 1 }), asked4 = [];
+    const e4 = await reject(addModule(dev4.access, mod, async (q) => { asked4.push(q); return true; }, () => {}));
+    ok(e4 && e4.code === "space" && !asked4.length && !dev4.got, `${id}: no room in fm1-dock: said so, nothing sent ("${e4 && e4.message}")`);
   }
 }
 // ------------------------------------------------------------------ a tune to FM-1 SID ---

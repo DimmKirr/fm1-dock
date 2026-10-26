@@ -66,6 +66,20 @@
   <div data-fm1-tunes></div>
   <p class="dim">More: any of HVSC's 61 000 tunes on <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">FM-1 SID's
     page</a>, with <b>Play on my FM-1</b>.</p>
+  <h3 class="install-then">And two synths by Charles Vestal</h3>
+  <p class="dim">Two of the FM-1 community's favourites, ported to fm1-dock with their code unchanged: add them next
+    to the others, and pick them with HOME. The originals, their manuals and their own firmware are on Charles Vestal's
+    pages.</p>
+  <div class="add-grid">
+    <div><h4>AMB-1 <span class="dim">· <a href="https://charlesvestal.github.io/fm1-amb/">original</a> · <a href="https://charlesvestal.github.io/fm1-amb/manual/">manual</a></span></h4>
+      <p class="dim">A generative ambient machine after <i>Music for Airports</i>: it plays itself, and you tend it.</p>
+      <div data-fm1-add="amb"></div></div>
+    <div><h4>FoMni <span class="dim">· <a href="https://charlesvestal.github.io/fm1-fomni/">original</a></span></h4>
+      <p class="dim">A chord harp after the Omnichord: chords on the black keys, strummed on the white ones.</p>
+      <div data-fm1-add="fomni"></div></div>
+  </div>
+  <p class="dim">Room: fm1-dock keeps 296 KB for added synths. FM-1 SID takes 266 KB, AMB-1 76 KB, FoMni 139 KB: AMB-1
+    and FoMni fit together; to swap FM-1 SID for them, delete it in the <a href="#console">console</a>'s module list.</p>
   <p class="dim">Or the <code>.fwsc</code> from the <a href="https://github.com/joakimeriksson/fm1-dock/releases/latest">latest
     release</a> with <code>tools/fm1_install.py</code>. FM-1 SID and Scintilla install from their own pages, or all
     three from <a href="install/">one page</a>.</p>
@@ -73,8 +87,8 @@
 
 <section id="synths">
   <h2>What's in the dock</h2>
-  <p class="sub">The package carries three synths and a sine. FM-1 SID is added to them with one click (<a href="#install">Install</a>),
-    or with <code>tools/dock.py deploy</code>. Each runs alone, with all of
+  <p class="sub">The package carries three synths and a sine. FM-1 SID, AMB-1 and FoMni are added to them with one click
+    (<a href="#install">Install</a>), or with <code>tools/dock.py deploy</code>. Each runs alone, with all of
     the module RAM, the screen and the panel to itself.</p>
   <div class="cards">
     <article class="card">
@@ -102,6 +116,21 @@
           and any .sid sent from <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">its page</a> plays at once.
           Not in the package: <a href="#install">add it</a> with one click.</p>
         <p class="meta">added module · 266 KB</p></div>
+    </article>
+    <article class="card">
+      <img src="media/screen_amb.png" alt="AMB-1's screen: the Garden, D Dorian on Dm7, the four layers' levels" loading="lazy">
+      <div><h3>AMB-1</h3><p class="by">Charles Vestal</p>
+        <p>A generative ambient machine after <i>Music for Airports</i>: breathing pads, bells on tape loops, a gliding
+          bass, through a tape echo and a plate. Ported unchanged from <a href="https://charlesvestal.github.io/fm1-amb/">AMB-1</a>; not in the package:
+          <a href="#install">add it</a>.</p>
+        <p class="meta">added module · 76 KB</p></div>
+    </article>
+    <article class="card">
+      <img src="media/screen_fomni.png" alt="FoMni's screen: the chord C, the strings, the chord buttons F C G Dm Am Em E7 D7 Bb A7" loading="lazy">
+      <div><h3>FoMni</h3><p class="by">Charles Vestal</p>
+        <p>A chord harp after the Omnichord: chords on the black keys, strummed on the white ones, a chord section, a bass
+          and a rhythm box. Ported unchanged from <a href="https://charlesvestal.github.io/fm1-fomni/">FoMni</a>; not in the package: <a href="#install">add it</a>.</p>
+        <p class="meta">added module · 139 KB</p></div>
     </article>
     <article class="card">
       <img src="media/screen_sine.png" alt="SINE's screen: a sine to build on, the note C4" loading="lazy">
@@ -347,6 +376,7 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
 <section id="credits" class="credits">
   <h2>Credits</h2>
   <p><b>fm1-dock</b>, <b>FM-1 SID</b> and <b>Scintilla</b>: Joakim Eriksson. <b>OberVave</b>: zvenson. <b>CS-1</b>: twochannels.
+    <b>AMB-1</b> and <b>FoMni</b>: Charles Vestal.
     fm1-dock stands on <a href="https://github.com/zvenson/dinghy">Dinghy</a> (zvenson), on the platform of
     <a href="https://github.com/hugelton/Felucca">Felucca</a> (Leo Kuroshita, Hügelton Instruments) as
     <a href="https://github.com/isod89/sloop-fm1">SLOOP</a> (isod89) carries it. reSID by Dag Lem; the SID tunes by their composers
