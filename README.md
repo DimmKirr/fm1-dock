@@ -30,8 +30,10 @@ WebMIDI), the emulator in the browser, the module interface and the protocol.
 
 ## Install
 
-Download `fm1-dock-X.Y.fwsc` from the [latest release](https://github.com/joakimeriksson/fm1-dock/releases/latest) and
-install it over USB:
+From [the page](https://joakimeriksson.github.io/fm1-dock/#install): **Install on my FM-1**, over USB in Chrome or Edge
+(FM-1 SID and Scintilla too, [all three on one page](https://joakimeriksson.github.io/fm1-dock/install/)). Or download
+`fm1-dock-X.Y.fwsc` from the [latest release](https://github.com/joakimeriksson/fm1-dock/releases/latest) and install it
+over USB:
 
 ```sh
 pip3 install mido python-rtmidi
