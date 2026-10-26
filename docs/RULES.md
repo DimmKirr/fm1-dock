@@ -5,8 +5,14 @@ has habits. These are the ones that cost the SLOOP / sloopDX / zp12 people time;
 
 ## Integers only
 
-- **No `float`, no `double`.** There is no FPU and no libgcc to emulate one: the link fails. Use fixed point:
-  Q15 (a value times 32768) for levels, Q12 for gains, a 32-bit phase for oscillators.
+- **No `double`.** The chip's FPU is single precision only (JieLi's `-mcpu=r3 -mfprev1`, as the SDK and
+  fm1-base build), and there is nothing to emulate a double with: the link fails.
+- **`float` only with those flags.** With `-mcpu=r3 -mfprev1 -ffp-contract=off` (a module's `cflags`, as
+  modules/amb and modules/fomni have) a float is one instruction, and it lives in the general registers: the
+  audio interrupt saves those anyway, so render() and the main loop may both use floats. Without the flags a
+  float becomes a call into compiler_rt's soft-float routines (a module links them), many times slower. The
+  host itself stays fixed point: Q15 (a value times 32768) for levels, Q12 for gains, a 32-bit phase for
+  oscillators.
 - **No 64-bit division.** `int64_t` multiplication is fine; `a / b` or `a % b` on 64-bit values needs
   `__udivdi3`, which is not there: the link fails. Shift instead, or divide 32-bit values.
 - **A division by zero does not crash.** It gives a wrong value (the trap is off, as SLOOP has it, because the
