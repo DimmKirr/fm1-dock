@@ -4,8 +4,9 @@
 // by Leo Kuroshita, Hügelton Instruments, GPL-3.0).
 //   node tests/install_test.mjs [DIR]
 import { readFileSync, existsSync } from "node:fs";
-import { checkPackage, packageDamage, logicalImage, productOf, installOn } from "../docs/install/fm1install.js";
+import { checkPackage, packageDamage, logicalImage, productOf, installOn, addModule } from "../docs/install/fm1install.js";
 import { pack7, unpack7 } from "../docs/install/fm1ota.js";
+import { frame, parse, moduleInfo, crc32, CMD } from "../docs/dock.js";
 
 let failed = 0;
 const ok = (c, what) => { console.log(`${c ? "ok  " : "FAIL"} ${what}`); if (!c) failed++; };
@@ -136,6 +137,68 @@ const yes = async () => true, no = async () => false;
   ok(e && e.code === "model", "another device than an FM-1: refused (model)");
 }
 ok(productOf(new Uint8Array(0x400).fill(0x7D)) === "", "productOf: no marker bytes, no identity");
+
+// ------------------------------------------------------------------ a module into fm1-dock ---
+// an FM-1 running fm1-dock (firmware/src/dock.c's deploys, as docs/dock.js speaks them), on WebMIDI
+class FakeDock {
+  constructor({ abi = 2, modules = ["SINE", "CS-1"], name = "Felucca" } = {}) {
+    this.abi = abi; this.mods = modules; this.got = null; this.committed = null; this.frames = 0;
+    const listeners = new Set();
+    this.input = { name, state: "connected", addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f) };
+    this.output = { name, state: "connected", send: (f) => { this.frames++; setTimeout(() => this.rx(f), 0); } };
+    this.reply = (cmd, seq, d) => { const m = frame(cmd | 0x40, seq, Uint8Array.from(d)); setTimeout(() => listeners.forEach((f) => f({ data: m })), 0); };
+    const map = (p) => ({ forEach: (fn) => fn(p) });
+    this.access = { inputs: map(this.input), outputs: map(this.output) };
+  }
+  rx(f) {
+    const r = parse(Uint8Array.from(f)), d = r.d;
+    const u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+    if (r.cmd === CMD.HELLO) this.reply(r.cmd, r.seq, [0, 1, this.abi, this.mods.length, 0, 0, 0, 0, ...u32(400000), ...u32(500000), ...u32(300000), ...new Array(24).fill(0)]);
+    else if (r.cmd === CMD.LIST) {
+      this.mods.forEach((n, i) => this.reply(r.cmd, r.seq, [0, i, 0, 2, ...u32(1), ...u32(1000), ...u32(0), ...new TextEncoder().encode(n.padEnd(24, "\0"))]));
+      this.reply(r.cmd, r.seq, [0, 0xff]);
+    } else if (r.cmd === CMD.BEGIN) {
+      const len = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24);
+      this.got = new Uint8Array(len); this.crc = (d[4] | (d[5] << 8) | (d[6] << 16) | (d[7] << 24)) >>> 0;
+      this.reply(r.cmd, r.seq, [0]);
+    } else if (r.cmd === CMD.DATA) {
+      const off = d[0] | (d[1] << 8) | (d[2] << 16) | (d[3] << 24);
+      this.got.set(d.subarray(4), off);
+      this.reply(r.cmd, r.seq, [0]);
+    } else if (r.cmd === CMD.COMMIT) {
+      const good = crc32(this.got) === this.crc;
+      if (good) this.committed = this.got;
+      this.reply(r.cmd, r.seq, [good ? 0 : 1, 0, 0, 0, ...u32(0x96000)]);
+    }
+  }
+}
+
+if (dir && existsSync(`${dir}/index.json`)) {
+  const index = JSON.parse(readFileSync(`${dir}/index.json`, "utf8"));
+  for (const [id, entry] of Object.entries(index.modules || {})) {
+    const blob = new Uint8Array(readFileSync(`${dir}/${entry.file}`));
+    const mod = { blob, info: moduleInfo(blob) };
+    ok(mod.info.name === entry.name && mod.info.abi === entry.abi, `${id}: ${entry.file} is the module ${entry.name}, ABI ${entry.abi}`);
+    const dev = new FakeDock();
+    const asked = [];
+    const got = await addModule(dev.access, mod, async (q) => { asked.push(q); return true; }, () => {});
+    ok(got === entry.name && dev.committed && eq(Array.from(dev.committed), Array.from(blob)),
+      `${id}: added to fm1-dock, every byte as in the file (${dev.frames} frames; asked "${asked[0]}")`);
+    const dev2 = new FakeDock({ modules: ["SINE", entry.name] });
+    const asked2 = [];
+    await addModule(dev2.access, mod, async (q) => { asked2.push(q); return true; }, () => {});
+    ok(/^Update/.test(asked2[0]), `${id}: already there: asks to update it`);
+    const dev3 = new FakeDock();
+    ok(await addModule(dev3.access, mod, no, () => {}) === null && !dev3.got, `${id}: Cancel: nothing sent after the question`);
+    const e = await reject(addModule(new FakeDock({ abi: 1 }).access, mod, yes, () => {}));
+    ok(e && e.code === "abi", `${id}: an fm1-dock of another ABI: refused`);
+  }
+}
+{
+  const blob = new Uint8Array(100);
+  const e = await reject(addModule({ inputs: { forEach() {} }, outputs: { forEach() {} } }, { blob, info: { abi: 2, name: "X" } }, yes, () => {}));
+  ok(e && e.code === "nodock", "no FM-1 running fm1-dock: nodock");
+}
 
 console.log(failed ? `INSTALL TESTS FAILED (${failed})` : "install tests passed");
 process.exit(failed ? 1 : 0);

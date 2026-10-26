@@ -38,15 +38,18 @@
 
 <section>
   <h2>fm1-dock</h2>
-  <p>One firmware, many synths: CS-1, Scintilla, OberVave and a sine as modules, picked with HOME, and FM-1 SID or
-    your own deployed over USB. <a href="../">More</a>.</p>
+  <p>One firmware, many synths: CS-1, Scintilla, OberVave and a sine as modules, picked with HOME; your own deploy over
+    USB. <a href="../">More</a>.</p>
   <div data-fm1-install="fm1-dock"></div>
+  <p>Then add FM-1 SID to it, as a module next to the others:</p>
+  <div data-fm1-add="fm1-sid"></div>
 </section>
 
 <section>
   <h2>FM-1 SID</h2>
   <p>A Commodore 64 SID on the FM-1: C64 tunes on a 6510 and reSID, a GoatTracker 2 editor and a SID synth.
-    <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">More</a>.</p>
+    <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">More</a>. As a firmware of its own here, or added to
+    fm1-dock (above).</p>
   <div data-fm1-install="fm1-sid"></div>
 </section>
 
@@ -65,8 +68,9 @@
 </main>
 
 <script type="module">
-  import { installButton } from "./fm1install.js";
+  import { installButton, addButton } from "./fm1install.js";
   for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install, { buttonClass: "btn primary" });
+  for (const el of document.querySelectorAll("[data-fm1-add]")) addButton(el, el.dataset.fm1Add, { buttonClass: "btn primary" });
 </script>
 </body>
 </html>

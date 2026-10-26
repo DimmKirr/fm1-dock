@@ -7,12 +7,14 @@
 // The update is Felucca's fm1ota.js (hugelton/Felucca 727f272, Felucca 1.0, unchanged), over WebMIDI:
 // Chrome or Edge.
 //
-//   <div data-fm1-install="fm1-sid"></div>
+//   <div data-fm1-install="fm1-sid"></div>             a whole firmware
+//   <div data-fm1-add="fm1-sid"></div>                 a module into the fm1-dock on the FM-1 (addButton)
 //   <script type="module">
 //     import { installButton } from "/fm1-dock/install/fm1install.js";
 //     for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install);
 //   </script>
 import { Updater } from "./fm1ota.js";
+import { Dock, moduleInfo } from "../dock.js";
 
 const SITE = new URL("../", import.meta.url);           // fm1-dock's site: fw/ is there
 const BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
@@ -135,6 +137,16 @@ export async function loadPackage(entry) {
   return checkPackage(new Uint8Array(await r.arrayBuffer()), entry);
 }
 
+export async function loadModule(entry) {
+  const r = await fetch(new URL("fw/" + entry.file, SITE));
+  if (!r.ok) throw fail("badpkg", `${entry.file}: HTTP ${r.status}`);
+  const blob = new Uint8Array(await r.arrayBuffer());
+  if (entry.sha256 && await sha256hex(blob) !== entry.sha256) throw fail("badpkg", `${entry.file}: SHA-256 differs`);
+  const info = moduleInfo(blob);
+  if (info.abi !== entry.abi) throw fail("badpkg", `${entry.file}: ABI ${info.abi}`);
+  return { blob, info };
+}
+
 // ------------------------------------------------------------------ the install ---
 
 // the whole update on the FM-1 found on midi: a running firmware is updated (ask(text) confirms it first), an
@@ -157,6 +169,36 @@ export async function installOn(midi, pkg, name, ask, step) {
   return pkg.product;
 }
 
+// the FM-1 on midi that runs fm1-dock (it answers HELLO): { dock, hello } or null; MIDI ports of other names are left alone
+async function findDock(midi) {
+  const ins = [], outs = [];
+  midi.inputs.forEach((p) => ins.push(p));
+  midi.outputs.forEach((p) => outs.push(p));
+  for (const out of outs) {
+    if (out.state === "disconnected" || !/felucca|fm1-dock|dock|fm-?1/i.test(out.name || "")) continue;
+    const inp = ins.find((i) => i.name === out.name && i.state !== "disconnected");
+    if (!inp) continue;
+    const dock = new Dock(inp, out);
+    try { return { dock, hello: await dock.hello() }; } catch (_) { dock.close(); }
+  }
+  return null;
+}
+
+// a module into the fm1-dock on the FM-1 (ask(text) confirms it first): BEGIN, the data, COMMIT, as the console's
+// Deploy; the modules there and the settings stay. -> the module's name, or null when cancelled
+export async function addModule(midi, mod, ask, progress) {
+  const found = await findDock(midi);
+  if (!found) throw fail("nodock", "");
+  const { dock, hello } = found;
+  try {
+    if (hello.abi !== mod.info.abi) throw fail("abi", `fm1-dock speaks ABI ${hello.abi}, the module ${mod.info.abi}`);
+    const there = (await dock.modules()).some((m) => m.name === mod.info.name);
+    if (!await ask(`${there ? "Update" : "Add"} ${mod.info.name} ${there ? "in" : "to"} the fm1-dock on the FM-1?`)) return null;
+    await dock.deploy(mod.blob, progress);
+    return mod.info.name;
+  } finally { dock.close(); }
+}
+
 const SAY = {
   nomidi: "This browser cannot reach the FM-1: open the page in Chrome or Edge.",
   denied: "MIDI (SysEx) was not allowed. Allow MIDI in the site settings (the address bar) and press Install again.",
@@ -170,6 +212,8 @@ const SAY = {
   mismatch: "Written, but the FM-1 reports another firmware: ",
   badpkg: "The package on this page failed its check, nothing was written. Reload the page. ",
   badreq: "The FM-1 asked for something outside the package; nothing more was sent. ",
+  nodock: "No FM-1 running fm1-dock found. Install fm1-dock first (above), plug the FM-1 in with a USB data cable, close other apps that use MIDI, and press again.",
+  abi: "This fm1-dock is too old or too new for the module: install the latest fm1-dock first. ",
   start: "Starting the update", verify: "The FM-1 checks the package", loader: "Switching to update mode",
   write: "Writing: do not unplug the FM-1", reboot: "Restarting",
 };
@@ -227,5 +271,53 @@ export function installButton(el, id, opts = {}) {
       console.error(e);
     }
     writing = false; btn.disabled = false;
+  });
+}
+
+// "Add FM-1 SID to my fm1-dock": a button, a progress bar and a status line in el, for the module id (index.json's modules)
+export function addButton(el, id, opts = {}) {
+  el.classList.add("fm1-install");
+  el.innerHTML = "";
+  const btn = Object.assign(document.createElement("button"), { type: "button", className: opts.buttonClass || "", disabled: true });
+  btn.textContent = "Add it to my fm1-dock";
+  const bar = Object.assign(document.createElement("progress"), { max: 100, value: 0, hidden: true });
+  const status = document.createElement("p");
+  status.className = "fm1-install-status";
+  status.setAttribute("role", "status");
+  const note = document.createElement("p");
+  note.className = "fm1-install-note";
+  el.append(btn, bar, status, note);
+  const say = (text) => { status.textContent = text; };
+  let entry = null, mod = null, busy = false;
+
+  if (!navigator.requestMIDIAccess) say(SAY.nomidi);
+  catalog().then((c) => {
+    entry = c.modules && c.modules[id];
+    if (!entry) { say("This module is not on this site yet."); return; }
+    btn.textContent = `Add ${entry.name} ${entry.version} to my fm1-dock`;
+    note.textContent = `Into fm1-dock on the FM-1, over USB in Chrome or Edge, in about half a minute: the other synths, ` +
+      `the settings and the presets stay. Then hold HOME and pick ${entry.name}.` + (entry.songs ? ` It comes with ${entry.songs}.` : "");
+    btn.disabled = !navigator.requestMIDIAccess;
+  }).catch((e) => say(`Could not load the list of modules (${e.message}).`));
+
+  addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
+  btn.addEventListener("click", async () => {
+    if (busy || !entry) return;
+    busy = true; btn.disabled = true;
+    try {
+      mod ||= await loadModule(entry);
+      let midi;
+      try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (_) { throw fail("denied", ""); }
+      say("Looking for fm1-dock on the FM-1 …");
+      const got = await addModule(midi, mod, async (q) => confirm(q), (x, t) => {
+        bar.hidden = false; bar.value = Math.round(x * 100); say(`Sending: ${t}`);
+      });
+      if (got === null) say("Cancelled: nothing was sent.");
+      else { bar.value = 100; say(`Done: ${got} is in fm1-dock. Hold HOME on the FM-1 and pick it.`); }
+    } catch (e) {
+      say(SAY[e.code] ? SAY[e.code] + (e.code === "badpkg" || e.code === "abi" ? e.message : "") : `Error: ${e.message}`);
+      console.error(e);
+    }
+    busy = false; btn.disabled = false;
   });
 }

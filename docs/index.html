@@ -7,7 +7,7 @@
 <meta name="description" content="fm1-dock: one firmware for the M-VAVE FM-1, many synths as modules. Switch between them on the device, deploy your own over USB, and debug them from the browser.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="fm1-dock: one FM-1 firmware, many synths">
-<meta property="og:description" content="Install once, then hold HOME and pick CS-1, Scintilla, OberVave or FM-1 SID: synths as modules for the M-VAVE FM-1. Install it from the page.">
+<meta property="og:description" content="Install once, then hold HOME and pick CS-1, Scintilla or OberVave, and add FM-1 SID with one click: synths as modules for the M-VAVE FM-1. Install it from the page.">
 <meta property="og:url" content="https://joakimeriksson.github.io/fm1-dock/">
 <meta property="og:image" content="https://joakimeriksson.github.io/fm1-dock/media/social.png">
 <meta property="og:image:width" content="1280">
@@ -57,6 +57,14 @@
     it and its own checksums before anything is sent. Back to any other firmware, or the official one, with the
     <a href="https://thefirmwarehub.com">FM-1 Firmware Hub</a>.</p>
   <div data-fm1-install="fm1-dock"></div>
+  <h3 class="install-then">Then add FM-1 SID</h3>
+  <p class="dim">FM-1 SID, the C64 synth in the video, is not in the package: it is a module, added to fm1-dock from here.</p>
+  <div data-fm1-add="fm1-sid"></div>
+  <p class="dim">The tunes from the video: <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/?t=MUSICIANS/G/Galway_Martin/Arkanoid.sid">Arkanoid</a>,
+    <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/?t=MUSICIANS/G/Galway_Martin/Wizball.sid&amp;s=7">Wizball</a> and
+    <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/?t=MUSICIANS/H/Hubbard_Rob/Commando.sid">Commando</a> open on FM-1 SID's page; there, <b>Play on my FM-1</b> sends the
+    tune to FM-1 SID on your FM-1 over USB and it plays. (They come from the High Voltage SID Collection when you play
+    them: none are shipped here.)</p>
   <p class="dim">Or the <code>.fwsc</code> from the <a href="https://github.com/joakimeriksson/fm1-dock/releases/latest">latest
     release</a> with <code>tools/fm1_install.py</code>. FM-1 SID and Scintilla install from their own pages, or all
     three from <a href="install/">one page</a>.</p>
@@ -64,7 +72,8 @@
 
 <section id="synths">
   <h2>What's in the dock</h2>
-  <p class="sub">The package carries four synths and a sine. FM-1 SID is deployed next to them over USB. Each runs alone, with all of
+  <p class="sub">The package carries three synths and a sine. FM-1 SID is added to them with one click (<a href="#install">Install</a>),
+    or with <code>tools/dock.py deploy</code>. Each runs alone, with all of
     the module RAM, the screen and the panel to itself.</p>
   <div class="cards">
     <article class="card">
@@ -88,8 +97,10 @@
     <article class="card">
       <img src="media/screen_fm1sid.png" alt="FM-1 SID's screen: Arkanoid by Martin Galway, three voices, the filter, the scope" loading="lazy">
       <div><h3>FM-1 SID</h3><p class="by">Joakim Eriksson</p>
-        <p>C64 music on the FM-1: a cycle-exact 6510, reSID and an own SID model, eleven tunes, subtunes on ALGORITHM, songs saved to banks.</p>
-        <p class="meta">deployed module · 267 KB</p></div>
+        <p>C64 music on the FM-1: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor,
+          and any .sid sent from <a href="https://joakimeriksson.github.io/fm1-emu/fm1-sid/">its page</a> plays at once.
+          Not in the package: <a href="#install">add it</a> with one click.</p>
+        <p class="meta">added module · 266 KB</p></div>
     </article>
     <article class="card">
       <img src="media/screen_sine.png" alt="SINE's screen: a sine to build on, the note C4" loading="lazy">
@@ -346,8 +357,9 @@ starts with a status byte (0 done). Little-endian words.</span></pre>
 
 <script type="module" src="console.js"></script>
 <script type="module">
-  import { installButton } from "./install/fm1install.js";
+  import { installButton, addButton } from "./install/fm1install.js";
   for (const el of document.querySelectorAll("[data-fm1-install]")) installButton(el, el.dataset.fm1Install, { buttonClass: "btn primary" });
+  for (const el of document.querySelectorAll("[data-fm1-add]")) addButton(el, el.dataset.fm1Add, { buttonClass: "btn primary" });
 </script>
 </body>
 </html>

@@ -1,0 +1,8 @@
+{
+ "fm1-sid": {
+  "file": "fm1sid.dock",
+  "version": "0.3",
+  "source": "joakimeriksson/fm1-sid 3210dc1 (FM-1 SID 0.3's code), dock/build.sh with fm1-dock 3cd4e55",
+  "songs": "GoatTracker 2's example songs: Dojo, Unleash, Sanction, Consultant, Transylvanian, Hyperspace, Sixpack, Everlasting"
+ }
+}
