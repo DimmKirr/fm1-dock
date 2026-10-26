@@ -1,0 +1,7 @@
+{
+  "what": "One firmware, many synths: hold HOME and pick CS-1, Scintilla (the Elka Synthex), OberVave or a sine, no reflashing. FM-1 SID (C64 music and a GoatTracker editor) and your own modules deploy over USB in seconds. BLE-MIDI, and the log and crash record in the browser.",
+  "kinds": [
+    "synth"
+  ],
+  "play": "https://joakimeriksson.github.io/fm1-dock/#emulator"
+}
