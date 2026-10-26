@@ -59,7 +59,8 @@ def modules(out, index, mdir, releases):
         h = module_header(raw, path.name)
         index["modules"][fid] = {"name": h["name"], "version": version, "file": path.name,
                                  "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw), "abi": h["abi"],
-                                 "source": source, "songs": m.get("songs", "")}
+                                 "source": source, "songs": m.get("songs", ""), "title": m.get("title", h["name"]),
+                                 "by": m.get("by", "")}
         print(f"{fid:10} {path.name:28} module, abi {h['abi']}  {index['modules'][fid]['sha256'][:16]}")
 
 

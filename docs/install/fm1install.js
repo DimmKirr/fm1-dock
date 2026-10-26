@@ -194,6 +194,8 @@ export async function addModule(midi, mod, ask, progress) {
   try {
     if (hello.abi !== mod.info.abi) throw fail("abi", `fm1-dock speaks ABI ${hello.abi}, the module ${mod.info.abi}`);
     const there = (await dock.modules()).some((m) => m.name === mod.info.name);
+    if (!there && mod.blob.length > hello.largest)    /* (an update takes the old one's place) */
+      throw fail("space", `${mod.info.name} needs ${Math.ceil(mod.blob.length / 1024)} KB, fm1-dock has ${Math.floor(hello.largest / 1024)} KB free.`);
     if (!await ask(`${there ? "Update" : "Add"} ${mod.info.name} ${there ? "in" : "to"} the fm1-dock on the FM-1?`)) return null;
     await dock.deploy(mod.blob, progress);
     return mod.info.name;
@@ -271,6 +273,7 @@ const SAY = {
   nodock: "No FM-1 running fm1-dock found. Install fm1-dock first (above), plug the FM-1 in with a USB data cable, close other apps that use MIDI, and press again.",
   abi: "This fm1-dock is too old or too new for the module: install the latest fm1-dock first. ",
   nosid: "FM-1 SID is not in the fm1-dock on the FM-1: add it first (Add FM-1 SID, above).",
+  space: "Not enough room in fm1-dock for it: remove another added synth first (the Console on fm1-dock's page: its module list, DELETE). ",
   select: "fm1-dock did not switch to FM-1 SID: ",
   refused: "FM-1 SID did not take it: ",
   hvsc: "Could not fetch the tune from the High Voltage SID Collection: ",
@@ -354,7 +357,8 @@ export function addButton(el, id, opts = {}) {
   catalog().then((c) => {
     entry = c.modules && c.modules[id];
     if (!entry) { say("This module is not on this site yet."); return; }
-    btn.textContent = `Add ${entry.name} ${entry.version} to my fm1-dock`;
+    const title = entry.title || entry.name;
+    btn.textContent = `Add ${title} ${entry.version} to my fm1-dock`;
     note.textContent = `Into fm1-dock on the FM-1, over USB in Chrome or Edge, in about half a minute: the other synths, ` +
       `the settings and the presets stay. Then hold HOME and pick ${entry.name}.` + (entry.songs ? ` It comes with ${entry.songs}.` : "");
     btn.disabled = !navigator.requestMIDIAccess;
@@ -375,7 +379,7 @@ export function addButton(el, id, opts = {}) {
       if (got === null) say("Cancelled: nothing was sent.");
       else { bar.value = 100; say(`Done: ${got} is in fm1-dock. Hold HOME on the FM-1 and pick it.`); }
     } catch (e) {
-      say(SAY[e.code] ? SAY[e.code] + (e.code === "badpkg" || e.code === "abi" ? e.message : "") : `Error: ${e.message}`);
+      say(SAY[e.code] ? SAY[e.code] + (["badpkg", "abi", "space"].includes(e.code) ? e.message : "") : `Error: ${e.message}`);
       console.error(e);
     }
     busy = false; btn.disabled = false;

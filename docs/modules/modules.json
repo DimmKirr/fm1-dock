@@ -3,6 +3,23 @@
   "file": "fm1sid.dock",
   "version": "0.3",
   "source": "joakimeriksson/fm1-sid 3210dc1 (FM-1 SID 0.3's code), dock/build.sh with fm1-dock 3cd4e55",
-  "songs": "GoatTracker 2's example songs: Dojo, Unleash, Sanction, Consultant, Transylvanian, Hyperspace, Sixpack, Everlasting"
+  "songs": "GoatTracker 2's example songs: Dojo, Unleash, Sanction, Consultant, Transylvanian, Hyperspace, Sixpack, Everlasting",
+  "title": "FM-1 SID"
+ },
+ "amb": {
+  "file": "amb.dock",
+  "version": "1.3+",
+  "source": "modules/amb: charlesvestal/fm1-amb 7797f4e (AMB-1 1.3 and one commit), fm1-dock 2037c7b",
+  "by": "Charles Vestal",
+  "songs": "",
+  "title": "AMB-1"
+ },
+ "fomni": {
+  "file": "fomni.dock",
+  "version": "0.4+",
+  "source": "modules/fomni: charlesvestal/fm1-fomni 7e7547f (FoMni-1 0.4 and four commits), fm1-dock 2037c7b",
+  "by": "Charles Vestal",
+  "songs": "",
+  "title": "FoMni"
  }
 }
