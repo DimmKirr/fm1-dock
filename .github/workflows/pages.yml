@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # The site (docs/) on GitHub Pages, with the packages its "Install on my FM-1" buttons write (docs/install/): the
-# latest releases of fm1-dock, FM-1 SID and Scintilla, copied into fw/ and checked (tools/site_packages.py). The
+# latest releases of fm1-dock, FM-1 SID and Scintilla, and the FM-1 SID module it adds to fm1-dock (docs/modules, or a
+# .dock on FM-1 SID's release), copied into fw/ and checked (tools/site_packages.py). The
 # pages of FM-1 SID (fm1-emu's site) and Scintilla use them too: the same origin, joakimeriksson.github.io.
 # Published from the Actions artifact (Settings -> Pages -> Source: GitHub Actions). FM-1 SID's and Scintilla's
 # releases reach it with the next run: every six hours, or by hand (Actions -> pages -> Run workflow).
@@ -40,7 +41,7 @@ jobs:
         run: |
           cp -r docs _site
           python3 tools/site_packages.py _site/fw fm1-dock=joakimeriksson/fm1-dock \
-              fm1-sid=joakimeriksson/fm1-sid scintilla=joakimeriksson/scintilla-fm1
+              fm1-sid=joakimeriksson/fm1-sid scintilla=joakimeriksson/scintilla-fm1 --modules docs/modules
       - name: Test the installer (the packages, and the update against a fake FM-1)
         run: node tests/install_test.mjs _site/fw
       - if: github.event_name != 'pull_request'

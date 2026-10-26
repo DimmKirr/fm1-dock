@@ -5,8 +5,11 @@ copied into the site, with fw/index.json. A page cannot download a release asset
 so the site keeps a copy. Each copy is checked against the SHA-256 GitHub gives for the release asset, and as
 tools/fm1_install.py checks a package before it installs one (identity, update loader, every file's CRC).
 
-  tools/site_packages.py OUT_DIR ID=OWNER/REPO ...      (GH_TOKEN, or gh logged in)
-  e.g. tools/site_packages.py _site/fw fm1-dock=joakimeriksson/fm1-dock fm1-sid=joakimeriksson/fm1-sid
+  tools/site_packages.py OUT_DIR ID=OWNER/REPO ... [--modules DIR]      (GH_TOKEN, or gh logged in)
+  e.g. tools/site_packages.py _site/fw fm1-dock=joakimeriksson/fm1-dock fm1-sid=joakimeriksson/fm1-sid --modules docs/modules
+
+The modules the page adds to an fm1-dock (FM-1 SID): a .dock attached to that firmware's latest release when there is
+one, else DIR's copy (DIR/modules.json says what it is). Each is checked as tools/hbdeploy.py checks one (its header).
 """
 import hashlib
 import json
@@ -17,21 +20,65 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fm1_install  # noqa: E402
+import hbmod  # noqa: E402
 
 
 def gh_json(path):
     return json.loads(subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout)
 
 
+def module_header(raw, name):
+    """a .dock's header, checked as tools/hbmod.py reads one (magic, relocations, CRC), or SystemExit"""
+    try:
+        h, relocs, image = hbmod.parse(raw)
+    except Exception as e:
+        raise SystemExit(f"{name}: not a good fm1-dock module ({e})")
+    if hbmod.crc_of(raw[:76], relocs, image) != h["crc"]:
+        raise SystemExit(f"{name}: the module's CRC does not match")
+    return h
+
+
+def modules(out, index, mdir, releases):
+    """the modules (mdir/modules.json) into out, preferring a .dock on that firmware's latest release"""
+    index["modules"] = {}
+    for fid, m in json.loads((mdir / "modules.json").read_text()).items():
+        rel = releases.get(fid)
+        docks = [a for a in rel["assets"] if a["name"].endswith(".dock")] if rel else []
+        if len(docks) == 1:
+            a = docks[0]
+            subprocess.run(["gh", "release", "download", rel["tag_name"], "-R", rel["repo"], "-p", a["name"], "-D",
+                            str(out), "--clobber"], check=True)
+            path, version, source = out / a["name"], rel["tag_name"].removeprefix("v"), rel["html_url"]
+            raw = path.read_bytes()
+            if a.get("digest") and a["digest"] != "sha256:" + hashlib.sha256(raw).hexdigest():
+                raise SystemExit(f"{a['name']}: SHA-256 differs from GitHub's")
+        else:
+            path = out / m["file"]
+            path.write_bytes((mdir / m["file"]).read_bytes())
+            version, source, raw = m["version"], m["source"], path.read_bytes()
+        h = module_header(raw, path.name)
+        index["modules"][fid] = {"name": h["name"], "version": version, "file": path.name,
+                                 "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw), "abi": h["abi"],
+                                 "source": source, "songs": m.get("songs", "")}
+        print(f"{fid:10} {path.name:28} module, abi {h['abi']}  {index['modules'][fid]['sha256'][:16]}")
+
+
 def main(argv):
+    mdir = None
+    if "--modules" in argv:
+        i = argv.index("--modules")
+        mdir = Path(argv[i + 1])
+        argv = argv[:i] + argv[i + 2:]
     if len(argv) < 2:
         raise SystemExit(__doc__)
     out = Path(argv[0])
     out.mkdir(parents=True, exist_ok=True)
     index = {"updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "firmwares": {}}
+    releases = {}
     for arg in argv[1:]:
         fid, _, repo = arg.partition("=")
         rel = gh_json(f"repos/{repo}/releases/latest")
+        releases[fid] = {**rel, "repo": repo}
         assets = [a for a in rel["assets"] if a["name"].endswith(".fwsc")]
         if len(assets) != 1:
             raise SystemExit(f"{repo} {rel['tag_name']}: {len(assets)} .fwsc assets, expected one")
@@ -51,6 +98,8 @@ def main(argv):
                                    "tag": rel["tag_name"], "file": a["name"], "sha256": sha, "size": len(raw),
                                    "product": product, "release": rel["html_url"]}
         print(f"{fid:10} {a['name']:28} {product:14} {sha[:16]}")
+    if mdir:
+        modules(out, index, mdir, releases)
     (out / "index.json").write_text(json.dumps(index, indent=1) + "\n")
 
 

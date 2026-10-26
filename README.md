@@ -25,13 +25,14 @@ WebMIDI), the emulator in the browser, the module interface and the protocol.
 | **CS-1** | twochannels | A CS-80-style synthesizer: two layers, its tone bars, effects, user presets, velocity and aftertouch from the keys. |
 | **Scintilla** | Joakim Eriksson | The 1981 Elka Synthex: all 80 factory patches, the laser harp ("Ring mod.") among them. |
 | **OberVave** | zvenson | A 4-track analog poly with arpeggiator, sequencer and effects. |
-| **FM-1 SID** | Joakim Eriksson | C64 music: a cycle-exact 6510, reSID and an own SID model; tunes, subtunes, songs saved to banks. Deployed next to the others. |
+| **FM-1 SID** | Joakim Eriksson | C64 music: a cycle-exact 6510, reSID and an own SID model; GoatTracker 2 songs and their editor. Not in the package: added with one click on [the page](https://joakimeriksson.github.io/fm1-dock/#install), or `tools/dock.py deploy`. |
 | **SINE** | built in | Dinghy's 4-voice sine: the fallback when a module fails, and the smallest module to copy. |
 
 ## Install
 
 From [the page](https://joakimeriksson.github.io/fm1-dock/#install): **Install on my FM-1**, over USB in Chrome or Edge
-(FM-1 SID and Scintilla too, [all three on one page](https://joakimeriksson.github.io/fm1-dock/install/)). Or download
+(FM-1 SID and Scintilla too, [all three on one page](https://joakimeriksson.github.io/fm1-dock/install/)), then **Add FM-1 SID
+to my fm1-dock** puts FM-1 SID next to the other synths. Or download
 `fm1-dock-X.Y.fwsc` from the [latest release](https://github.com/joakimeriksson/fm1-dock/releases/latest) and install it
 over USB:
 
